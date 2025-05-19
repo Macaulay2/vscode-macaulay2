@@ -17,5 +17,6 @@ const clientOptions: LanguageClientOptions = {
 
 export default new LanguageClient(
     "macaulay2-language-server",
+    "Macaulay2 Language Server",
     serverOptions,
     clientOptions);

@@ -1,35 +1,35 @@
-(function () {
+import { Shell } from "./shellEmulator.js"
+
 //const vscode = acquireVsCodeApi();
-    // const inputElement = document.getElementById('input');
-                const outputElement = document.getElementById('output');
+// const inputElement = document.getElementById('input');
+const outputElement = document.getElementById('output');
 
 
-    window.addEventListener('message', event => {    
-                    const message = event.data;
-                    switch (message.command) {
-                        case 'output':
-                            outputElement.innerHTML += message.text;
-    // myshell.displayOutput(message.text);
-                            renderMathInElement(outputElement, {
-                                delimiters: [
-                                    {left: "$", right: "$", display: false},
-                                ]
-                            });
-                            outputElement.scrollTop = outputElement.scrollHeight; // Scroll to the bottom
-                            break;
-                    }
-    });
+window.addEventListener('message', event => {    
+    const message = event.data;
+    switch (message.command) {
+    case 'output':
+        outputElement.innerHTML += message.text;
+	// myshell.displayOutput(message.text);
+        renderMathInElement(outputElement, {
+            delimiters: [
+                {left: "$", right: "$", display: false},
+            ]
+        });
+        outputElement.scrollTop = outputElement.scrollHeight; // Scroll to the bottom
+        break;
+    }
+});
 
 
-    console.log("here");
-    /*
-      myshell = new Shell1(
-    outputElement,
-    null,
-    null,
-    null,
-    false // no input span
-    );
-    */
-    console.log("HELLO");
-})
+console.log("here");
+
+  myshell = new Shell(
+  outputElement,
+  null,
+  null,
+  null,
+  false // no input span
+  );
+
+console.log("HELLO");

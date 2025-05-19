@@ -13,8 +13,6 @@ function startREPLCommand(context: vscode.ExtensionContext) {
     startREPL(false);
 }
 
-let shellJsUri;
-
 async function startREPL(preserveFocus: boolean) {
     if (g_terminal === undefined) {
         let exepath = vscode.workspace.getConfiguration("macaulay2").get<string>("executablePath");
@@ -43,17 +41,12 @@ async function startREPL(preserveFocus: boolean) {
                 'Macaulay2 Output',
                 vscode.ViewColumn.Two,
                 {
-                    enableScripts: true
+                  enableScripts: true,
+		  localResourceRoots: [vscode.Uri.joinPath(g_context.extensionUri, 'out')],
                 }
             );
 
-          g_panel.webview.html = getWebviewContent(g_panel.webview,);
-
-	  /*
-	  shellJsUri = g_panel.webview.asWebviewUri(
-	    vscode.Uri.joinPath(this._extensionUri, 'out', 'shellEmulator.js')
-	    );
-	   */
+          g_panel.webview.html = getWebviewContent(g_panel.webview);
 
             g_panel.webview.onDidReceiveMessage(handleWebviewMessage);
 
@@ -146,7 +139,6 @@ function executeSelection() {
 function getWebviewContent(webview: vscode.Webview) {
   
   const extensionUri = g_context.extensionUri;
-  //  const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'main.js'));
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out','main.js'));
   
     return `
@@ -177,7 +169,7 @@ function getWebviewContent(webview: vscode.Webview) {
         </head>
         <body>
             <pre id="output"></pre>
-        <script  src="${scriptUri}"></script>
+        <script type="module" src="${scriptUri}"></script>
         </body>
         </html>
     `;

@@ -1,33 +1,98 @@
-
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
 
 let g_context: vscode.ExtensionContext | undefined;
 let g_terminal: vscode.Terminal | undefined;
+let g_panel: vscode.WebviewPanel | undefined;
+let outputFilePath: string | undefined;
+let filePosition = 0; // Variable to track the current read position in the file
 
 function startREPLCommand(context: vscode.ExtensionContext) {
     startREPL(false);
 }
 
 async function startREPL(preserveFocus: boolean) {
-    console.log("function startREPL called...");
     if (g_terminal === undefined) {
         let exepath = vscode.workspace.getConfiguration("macaulay2").get<string>("executablePath");
-        // console.log(`Starting REPL in ${fileDirname} based on current file of ${file}`);
         let editor = vscode.window.activeTextEditor;
         let fullpath = editor!.document.uri.path;
-        let dirarray = fullpath.split("/");
-        dirarray.pop();
-        let dirpath = dirarray.join("/");
-	    console.log(`dirpath: ${dirpath}`);
+        let dirpath = path.dirname(fullpath);
+
+        // Create a temporary file for output
+        outputFilePath = path.join(dirpath, "macaulay2_output.txt");
+        fs.writeFileSync(outputFilePath, ""); // Clear the file initially
+
         g_terminal = vscode.window.createTerminal({
             name: "macaulay2",
-            shellPath: exepath,
-            shellArgs: [],
-            env: {},
-            cwd: `${dirpath}`
+            shellPath: "/bin/bash",
+            cwd: `${dirpath}`,
+            shellArgs: ['-c', `${exepath} -E topLevelMode=WebApp 2>&1 | tee ${outputFilePath}`] // Redirect both stdout and stderr to the file
         });
+
+        g_terminal.show(preserveFocus);
+
+        // Create or show the webview panel
+        if (g_panel === undefined) {
+            g_panel = vscode.window.createWebviewPanel(
+                'macaulay2Output',
+                'Macaulay2 Output',
+                vscode.ViewColumn.Two,
+                {
+                    enableScripts: true
+                }
+            );
+
+            g_panel.webview.html = getWebviewContent();
+            g_panel.webview.onDidReceiveMessage(handleWebviewMessage);
+
+            g_panel.onDidDispose(() => {
+                g_panel = undefined;
+            });
+        }
+
+        // Start listening to the output file for changes
+        startOutputListener();
     }
-    g_terminal.show(preserveFocus);
+}
+
+function startOutputListener() {
+    if (outputFilePath && g_panel) {
+        console.log(`Watching file: ${outputFilePath}`);
+
+        // Watch the file for changes
+        fs.watch(outputFilePath, (eventType) => {
+            if (eventType === 'change') {
+                console.log(`File changed: ${outputFilePath}`);
+
+                if (outputFilePath) {
+                    // Read only the new data from the file
+                    let stats = fs.statSync(outputFilePath); // Get the current size of the file
+                    let stream = fs.createReadStream(outputFilePath, {
+                        start: filePosition,
+                        end: stats.size
+                    });
+
+                    let newData = '';
+                    stream.on('data', chunk => {
+                        newData += chunk.toString();
+                    });
+
+                    stream.on('end', () => {
+                        filePosition = stats.size; // Update the position for next read
+                        // Remove specific terminal control characters
+                        newData = newData.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, ''); // Remove ANSI escape codes
+                        newData = newData.replace(/\x1B\[\?2004[hl]/g, ''); // Remove specific control sequences
+                        g_panel!.webview.postMessage({ command: 'output', text: newData });
+                    });
+                } else {
+                    console.error('outputFilePath is undefined!');
+                }
+            }
+        });
+    } else {
+        console.error('Output file path or webview panel is undefined!');
+    }
 }
 
 async function executeCode(text: string) {
@@ -37,17 +102,21 @@ async function executeCode(text: string) {
 
     await startREPL(true);
     g_terminal!.show(true);
+
+    // Filter out empty lines and send to terminal
     var lines = text.split(/\r?\n/);
     lines = lines.filter(line => line !== '');
     text = lines.join('\n');
-    // if (process.platform === "win32") {
-        // g_terminal!.sendText(text + '\n', false);
-    // }
-    // else {
-        // g_terminal!.sendText('\u001B[200~' + text + '\n' + '\u001B[201~', false);
-        // g_terminal!.sendText('\u001B[200~' + text + '\n' + '\u001B[201~', false);
-    // }
-    g_terminal!.sendText(text + '\n', false);
+
+    // Also append the command itself to the output file for logging
+    if (outputFilePath) {
+        fs.appendFileSync(outputFilePath, text + "\n");
+    }
+
+    g_terminal!.sendText(text);
+
+    // Move the cursor to the next line
+    vscode.commands.executeCommand('cursorMove', { to: 'down', by: 'line', value: 1 });
 }
 
 function executeSelection() {
@@ -59,18 +128,69 @@ function executeSelection() {
     var selection = editor.selection;
     var text = selection.isEmpty ? editor.document.lineAt(selection.start.line).text : editor.document.getText(selection);
 
-    // If no text was selected, try to move the cursor to the end of the next line
-    if (selection.isEmpty) {
-        for (var line = selection.start.line + 1; line < editor.document.lineCount; line++) {
-            if (!editor.document.lineAt(line).isEmptyOrWhitespace) {
-                var newPos = selection.active.with(line, editor.document.lineAt(line).range.end.character);
-                var newSel = new vscode.Selection(newPos, newPos);
-                editor.selection = newSel;
-                break;
-            }
-        }
-    }
     executeCode(text);
+}
+
+function getWebviewContent() {
+    return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Macaulay2 Output</title>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/katex.min.css">
+            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/katex.min.js"></script>
+            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/contrib/auto-render.min.js"></script>
+            <style>
+                body {
+                    font-family: monospace;
+                    white-space: pre;
+                }
+                #input {
+                    width: 100%;
+                    font-family: monospace;
+                    font-size: 1em;
+                }
+                #output {
+                    max-height: 90vh;
+                    overflow-y: auto;
+                }
+            </style>
+        </head>
+        <body>
+            <pre id="output"></pre>
+            <script>
+                const vscode = acquireVsCodeApi();
+                const inputElement = document.getElementById('input');
+                const outputElement = document.getElementById('output');
+
+                window.addEventListener('message', event => {
+                    const message = event.data;
+                    switch (message.command) {
+                        case 'output':
+                            outputElement.innerHTML += message.text;
+                            renderMathInElement(outputElement, {
+                                delimiters: [
+                                    {left: "$", right: "$", display: false},
+                                ]
+                            });
+                            outputElement.scrollTop = outputElement.scrollHeight; // Scroll to the bottom
+                            break;
+                    }
+                });
+            </script>
+        </body>
+        </html>
+    `;
+}
+
+function handleWebviewMessage(message: any) {
+    switch (message.command) {
+        case 'execute':
+            executeCode(message.text);
+            break;
+    }
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -84,4 +204,13 @@ export function activate(context: vscode.ExtensionContext) {
             g_terminal = undefined;
         }
     });
+}
+
+export function deactivate() {
+    if (g_terminal) {
+        g_terminal.dispose();
+    }
+    if (g_panel) {
+        g_panel.dispose();
+    }
 }

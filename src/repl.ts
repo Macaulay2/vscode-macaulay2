@@ -27,7 +27,7 @@ async function startREPL(preserveFocus: boolean) {
             name: "macaulay2",
             shellPath: "/bin/bash",
             cwd: `${dirpath}`,
-            shellArgs: ['-c', `${exepath} -E topLevelMode=WebApp 2>&1 | tee ${outputFilePath}`] // Redirect both stdout and stderr to the file
+          shellArgs: ['-c', `stty -echo; ${exepath} --webapp 2>&1 | tee ${outputFilePath}`] // Redirect both stdout and stderr to the file
         });
 
         g_terminal.show(preserveFocus);
@@ -108,11 +108,12 @@ async function executeCode(text: string) {
     lines = lines.filter(line => line !== '');
     text = lines.join('\n');
 
-    // Also append the command itself to the output file for logging
-    if (outputFilePath) {
-        fs.appendFileSync(outputFilePath, text + "\n");
-    }
-
+  /*
+  // Also append the command itself to the output file for logging
+     if (outputFilePath) {
+     fs.appendFileSync(outputFilePath, text + "\n");
+     }
+   */
     g_terminal!.sendText(text);
 
     // Move the cursor to the next line

@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import { Shell } from "./shellEmulator";
 
 let g_context: vscode.ExtensionContext | undefined;
 let g_terminal: vscode.Terminal | undefined;
@@ -11,6 +12,8 @@ let filePosition = 0; // Variable to track the current read position in the file
 function startREPLCommand(context: vscode.ExtensionContext) {
     startREPL(false);
 }
+
+let shellJsUri;
 
 async function startREPL(preserveFocus: boolean) {
     if (g_terminal === undefined) {
@@ -30,7 +33,8 @@ async function startREPL(preserveFocus: boolean) {
           shellArgs: ['-c', `stty -echo; ${exepath} --webapp 2>&1 | tee ${outputFilePath}`] // Redirect both stdout and stderr to the file
         });
 
-        g_terminal.show(preserveFocus);
+      g_terminal.show(preserveFocus);
+
 
         // Create or show the webview panel
         if (g_panel === undefined) {
@@ -43,7 +47,14 @@ async function startREPL(preserveFocus: boolean) {
                 }
             );
 
-            g_panel.webview.html = getWebviewContent();
+          g_panel.webview.html = getWebviewContent(g_panel.webview,);
+
+	  /*
+	  shellJsUri = g_panel.webview.asWebviewUri(
+	    vscode.Uri.joinPath(this._extensionUri, 'out', 'shellEmulator.js')
+	    );
+	   */
+
             g_panel.webview.onDidReceiveMessage(handleWebviewMessage);
 
             g_panel.onDidDispose(() => {
@@ -132,7 +143,12 @@ function executeSelection() {
     executeCode(text);
 }
 
-function getWebviewContent() {
+function getWebviewContent(webview: vscode.Webview) {
+  
+  const extensionUri = g_context.extensionUri;
+  //  const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'main.js'));
+  const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out','main.js'));
+  
     return `
         <!DOCTYPE html>
         <html lang="en">
@@ -143,7 +159,7 @@ function getWebviewContent() {
             <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/katex.min.css">
             <script defer src="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/katex.min.js"></script>
             <script defer src="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/contrib/auto-render.min.js"></script>
-            <style>
+    <style>
                 body {
                     font-family: monospace;
                     white-space: pre;
@@ -161,26 +177,7 @@ function getWebviewContent() {
         </head>
         <body>
             <pre id="output"></pre>
-            <script>
-                const vscode = acquireVsCodeApi();
-                const inputElement = document.getElementById('input');
-                const outputElement = document.getElementById('output');
-
-                window.addEventListener('message', event => {
-                    const message = event.data;
-                    switch (message.command) {
-                        case 'output':
-                            outputElement.innerHTML += message.text;
-                            renderMathInElement(outputElement, {
-                                delimiters: [
-                                    {left: "$", right: "$", display: false},
-                                ]
-                            });
-                            outputElement.scrollTop = outputElement.scrollHeight; // Scroll to the bottom
-                            break;
-                    }
-                });
-            </script>
+        <script  src="${scriptUri}"></script>
         </body>
         </html>
     `;

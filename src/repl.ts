@@ -168,7 +168,7 @@ function getWebviewContent(webview: vscode.Webview) {
             </style>
         </head>
         <body>
-            <pre id="output"></pre>
+            <div id="output"></div>
         <script type="module" src="${scriptUri}"></script>
         </body>
         </html>

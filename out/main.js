@@ -9,13 +9,8 @@ window.addEventListener('message', event => {
     const message = event.data;
     switch (message.command) {
     case 'output':
-        outputElement.innerHTML += message.text;
-	// myshell.displayOutput(message.text);
-        renderMathInElement(outputElement, {
-            delimiters: [
-                {left: "$", right: "$", display: false},
-            ]
-        });
+        //outputElement.innerHTML += message.text;
+	myshell.displayOutput(message.text);
         outputElement.scrollTop = outputElement.scrollHeight; // Scroll to the bottom
         break;
     }
@@ -24,7 +19,7 @@ window.addEventListener('message', event => {
 
 console.log("here");
 
-  myshell = new Shell(
+  const myshell = new Shell(
   outputElement,
   null,
   null,

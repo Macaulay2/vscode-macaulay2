@@ -54,7 +54,7 @@
 			"properties": {
 				"macaulay2.executablePath": {
 					"type": "string",
-					"default": "/Applications/Macaulay2-1.13/bin/m2",
+					"default": "M2",
 					"description": "Location of Macaulay2 executable",
 					"scope": "application"
 				}

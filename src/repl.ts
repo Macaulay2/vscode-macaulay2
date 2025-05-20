@@ -143,23 +143,18 @@ function getWebviewContent(webview: vscode.Webview) {
     return `
         <!DOCTYPE html>
         <html lang="en">
-        <head>
+          <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Macaulay2 Output</title>
             <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/katex.min.css">
             <script defer src="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/katex.min.js"></script>
             <script defer src="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/contrib/auto-render.min.js"></script>
-    <style>
-                #terminal {
-                    max-height: 90vh;
-                }
-            </style>
             <link rel="stylesheet" href="${cssUri}">
-        </head>
-        <body id="terminal" class="M2Text">
             <script type="module" src="${scriptUri}"></script>
-        </body>
+          </head>
+          <body id="terminal" class="M2Text" style="max-height: 90vh">
+          </body>
         </html>
     `;
 }

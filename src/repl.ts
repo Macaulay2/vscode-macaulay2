@@ -85,8 +85,8 @@ function startOutputListener() {
                     stream.on('end', () => {
                         filePosition = stats.size; // Update the position for next read
                         // Remove specific terminal control characters
-                        newData = newData.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, ''); // Remove ANSI escape codes
-                        newData = newData.replace(/\x1B\[\?2004[hl]/g, ''); // Remove specific control sequences
+                      //newData = newData.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, ''); // Remove ANSI escape codes
+                      //  newData = newData.replace(/\x1B\[\?2004[hl]/g, ''); // Remove specific control sequences
                         g_panel!.webview.postMessage({ command: 'output', text: newData });
                     });
                 } else {
@@ -140,6 +140,7 @@ function getWebviewContent(webview: vscode.Webview) {
   
   const extensionUri = g_context.extensionUri;
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out','main.js'));
+  const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out','minimal.css'));
   
     return `
         <!DOCTYPE html>
@@ -156,20 +157,16 @@ function getWebviewContent(webview: vscode.Webview) {
                     font-family: monospace;
                     white-space: pre;
                 }
-                #input {
-                    width: 100%;
-                    font-family: monospace;
-                    font-size: 1em;
-                }
-                #output {
+                #terminal {
                     max-height: 90vh;
                     overflow-y: auto;
                 }
             </style>
+            <link rel="stylesheet" href="${cssUri}">
         </head>
         <body>
-            <div id="output"></div>
-        <script type="module" src="${scriptUri}"></script>
+            <div id="terminal" class="M2Text"></div>
+            <script type="module" src="${scriptUri}"></script>
         </body>
         </html>
     `;

@@ -1,6 +1,6 @@
 declare const MINIMAL;
 // import { autoRender } from "./autoRender";
-import { webAppTags, webAppClasses, webAppRegex } from "./tags";
+import { webAppTags, webAppClasses, webAppRegex } from "./tags.js";
 import {
   scrollDownLeft,
   scrollDown,
@@ -13,10 +13,10 @@ import {
   locateRowColumn,
   locateOffset,
   addMarkerPos,
-} from "./htmlTools";
+} from "./htmlTools.js";
 
 
-// import Prism from "prismjs";
+// import Prism from "prismjs"; // TODO reinstate
 
 /*
 function dehtml(s) {
@@ -323,8 +323,16 @@ const Shell = function (
         anc.parentElement.insertBefore(htmlSec, anc);
       }
       htmlSec.insertAdjacentHTML("beforeend", htmlSec.dataset.code);
-      // KaTeX rendering
+      // KaTeX rendering // TODO reinstate bundled version
       // autoRender(htmlSec);
+      // instead we use the non-bundled katex
+      // @ts-ignore
+      renderMathInElement(htmlSec, {
+        strict: false,
+	trust: true,
+	delimiters: [
+          {left: "$", right: "$", display: false},
+        ]});
       // syntax highlighting code
       /*
       Array.from(

@@ -63,7 +63,7 @@
 		"keybindings": [
 			{
 				"command": "macaulay2.sendToREPL",
-				"key": "alt+Enter"
+				"key": "shift+Enter"
 			},
 			{
 				"command": "macaulay2.startREPL",
@@ -73,14 +73,17 @@
 	},
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
-		"compile": "tsc -p ./",
-		"watch": "tsc -watch -p ./",
+		"compile": "tsc -p tsconfig.backend.json && tsc -p tsconfig.webview.json",
+		"watch-backend": "tsc -w -p tsconfig.backend.json",
+		"watch-webview": "tsc -w -p tsconfig.webview.json",
+		"watch": "npm-run-all --parallel watch-backend watch-webview",
 		"test": "npm run compile && node ./node_modules/vscode/bin/test"
 	},
 	"devDependencies": {
 		"@types/mocha": "^2.2.48",
 		"@types/node": "^10.12.21",
 		"@types/vscode": "^1.36.0",
+		"npm-run-all": "^4.1.5",
 		"tslint": "^5.12.1",
 		"typescript": "^5.4.0",
 		"vscode-test": "^1.0.0"

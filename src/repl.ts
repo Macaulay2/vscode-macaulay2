@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
-import { Shell } from "./shellEmulator";
 
 let g_context: vscode.ExtensionContext | undefined;
 let g_terminal: vscode.Terminal | undefined;
@@ -42,7 +41,7 @@ async function startREPL(preserveFocus: boolean) {
                 vscode.ViewColumn.Two,
                 {
                   enableScripts: true,
-		  localResourceRoots: [vscode.Uri.joinPath(g_context.extensionUri, 'out')],
+		  localResourceRoots: [vscode.Uri.joinPath(g_context.extensionUri, 'media')],
                 }
             );
 
@@ -139,9 +138,8 @@ function executeSelection() {
 function getWebviewContent(webview: vscode.Webview) {
   
   const extensionUri = g_context.extensionUri;
-  const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out','main.js'));
-  const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out','minimal.css'));
-  
+  const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media','main.js'));
+  const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media','minimal.css'));
     return `
         <!DOCTYPE html>
         <html lang="en">

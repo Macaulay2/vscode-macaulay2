@@ -1,4 +1,4 @@
-import { Shell } from "./shellEmulator-nodep.js"
+import { Shell } from './shellEmulator.js';
 
 //const vscode = acquireVsCodeApi();
 const outputElement = document.getElementById('terminal');
@@ -24,7 +24,7 @@ window.addEventListener('message', event => {
   null,
   null,
   null,
-  true // no input span
+  true
   );
 
-console.log("Shell created");
+console.log("Shell created.");

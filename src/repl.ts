@@ -153,19 +153,13 @@ function getWebviewContent(webview: vscode.Webview) {
             <script defer src="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/katex.min.js"></script>
             <script defer src="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/contrib/auto-render.min.js"></script>
     <style>
-                body {
-                    font-family: monospace;
-                    white-space: pre;
-                }
                 #terminal {
                     max-height: 90vh;
-                    overflow-y: auto;
                 }
             </style>
             <link rel="stylesheet" href="${cssUri}">
         </head>
-        <body>
-            <div id="terminal" class="M2Text"></div>
+        <body id="terminal" class="M2Text">
             <script type="module" src="${scriptUri}"></script>
         </body>
         </html>

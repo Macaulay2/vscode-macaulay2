@@ -13,11 +13,16 @@ let proc: ChildProcess | undefined;
 
 function runAndSendToWebview(webview: vscode.Webview) {
     let exepath = vscode.workspace.getConfiguration("macaulay2").get<string>("executablePath");
+    if (!exepath) {
+        vscode.window.showErrorMessage("Macaulay2 executable path is not set. Please configure 'macaulay2.executablePath' in your settings.");
+        return;
+    }
     proc = spawn(exepath, ['--webapp']);
     console.log('M2 process started');
 
     proc.stdout.on('data', (data) => {
         // Send output to webview
+        console.log('M2 stdout:', data.toString());
         webview.postMessage({
             type: 'output',
             data: data.toString()
@@ -75,7 +80,7 @@ async function startREPL(preserveFocus: boolean) {
                 vscode.ViewColumn.Two,
                 {
                   enableScripts: true,
-		  localResourceRoots: [vscode.Uri.joinPath(g_context.extensionUri, 'media')],
+		  localResourceRoots: [vscode.Uri.joinPath(g_context!.extensionUri, 'media')],
                 }
             );
 
@@ -108,7 +113,11 @@ async function executeCode(text: string) {
     lines = lines.filter(line => line !== '');
     text = lines.join('\n');
 
-    proc.stdin.write(text); 
+    if (proc && proc.stdin) {
+        proc.stdin.write(text + '\n');
+    } else {
+        vscode.window.showErrorMessage("Macaulay2 process is not running.");
+    }
 }
 
 function executeSelection() {
@@ -127,7 +136,7 @@ function executeSelection() {
 
 function getWebviewContent(webview: vscode.Webview) {
   
-  const extensionUri = g_context.extensionUri;
+  const extensionUri = g_context!.extensionUri;
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media','main.js'));
   const VGUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media','VectorGraphics.js'));
   const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media','minimal.css'));
@@ -158,7 +167,7 @@ function handleWebviewMessage(message: any) {
         break;
       case 'focus':
         const editor = vscode.window.activeTextEditor;
-	vscode.window.showTextDocument(editor.document, editor.viewColumn, false); // restore focus
+	vscode.window.showTextDocument(editor!.document, editor!.viewColumn, false); // restore focus
 	break;
     }
 }

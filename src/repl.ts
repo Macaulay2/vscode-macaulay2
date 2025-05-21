@@ -57,21 +57,6 @@ async function startREPL(preserveFocus: boolean) {
         let fullpath = editor!.document.uri.path;
         let dirpath = path.dirname(fullpath);
 
-        // Create a temporary file for output
-        //outputFilePath = path.join(dirpath, "macaulay2_output.txt");
-        //fs.writeFileSync(outputFilePath, ""); // Clear the file initially
-
-        /*g_terminal = vscode.window.createTerminal({
-            name: "macaulay2",
-            shellPath: "/bin/bash",
-            cwd: `${dirpath}`,
-          shellArgs: ['-c', `stty -echo; ${exepath} --webapp 2>&1 | tee ${outputFilePath}`] // Redirect both stdout and stderr to the file
-        });
-        
-
-      g_terminal.show(preserveFocus);*/
-
-
         // Create or show the webview panel
         if (g_panel === undefined) {
             g_panel = vscode.window.createWebviewPanel(
@@ -93,9 +78,7 @@ async function startREPL(preserveFocus: boolean) {
             });
         }
 
-        runAndSendToWebview(g_panel.webview); // Fix this line with correct M2 init
-        // Start listening to the output file for changes
-        //startOutputListener();
+        runAndSendToWebview(g_panel.webview); 
     }
 }
 

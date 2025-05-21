@@ -13,6 +13,7 @@ import {
   locateRowColumn,
   locateOffset,
   addMarkerPos,
+  language
 } from "./htmlTools.js";
 
 
@@ -248,7 +249,10 @@ const Shell = function (
     let t = e.target as HTMLElement;
     while (t != terminal) {
       if (
-        t.classList.contains("M2PastInput")
+	((t.tagName == "CODE" && language(t) == "Macaulay2") ||
+          t.dataset.m2code || // allows to emulate code pasting from arbitrary html element
+          t.classList.contains("M2PastInput")) &&
+	  t.ownerDocument.getSelection().isCollapsed
       ) {
 	obj.codeInputAction(t);
         return;

@@ -2,35 +2,69 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 
+import { spawn, ChildProcess} from 'child_process';
+
 let g_context: vscode.ExtensionContext | undefined;
 let g_terminal: vscode.Terminal | undefined;
 let g_panel: vscode.WebviewPanel | undefined;
 let outputFilePath: string | undefined;
 let filePosition = 0; // Variable to track the current read position in the file
+let proc: ChildProcess | undefined; 
+
+function runAndSendToWebview(webview: vscode.Webview) {
+    let exepath = vscode.workspace.getConfiguration("macaulay2").get<string>("executablePath");
+    proc = spawn(exepath, ['--webapp']);
+    console.log('M2 process started');
+
+    proc.stdout.on('data', (data) => {
+        // Send output to webview
+        webview.postMessage({
+            type: 'output',
+            data: data.toString()
+        });
+    });
+
+    proc.stderr.on('data', (data) => {
+        webview.postMessage({
+            type: 'output',
+            data: data.toString()
+        });
+    });
+
+    proc.on('close', (code) => {
+        webview.postMessage({
+            type: 'exit',
+            code
+        });
+    });
+}
+
+
 
 function startREPLCommand(context: vscode.ExtensionContext) {
     startREPL(false);
 }
 
 async function startREPL(preserveFocus: boolean) {
-    if (g_terminal === undefined) {
+    if (proc === undefined) {
         let exepath = vscode.workspace.getConfiguration("macaulay2").get<string>("executablePath");
         let editor = vscode.window.activeTextEditor;
         let fullpath = editor!.document.uri.path;
         let dirpath = path.dirname(fullpath);
 
         // Create a temporary file for output
-        outputFilePath = path.join(dirpath, "macaulay2_output.txt");
-        fs.writeFileSync(outputFilePath, ""); // Clear the file initially
+        //outputFilePath = path.join(dirpath, "macaulay2_output.txt");
+        //fs.writeFileSync(outputFilePath, ""); // Clear the file initially
 
-        g_terminal = vscode.window.createTerminal({
+        /*g_terminal = vscode.window.createTerminal({
             name: "macaulay2",
             shellPath: "/bin/bash",
             cwd: `${dirpath}`,
           shellArgs: ['-c', `stty -echo; ${exepath} --webapp 2>&1 | tee ${outputFilePath}`] // Redirect both stdout and stderr to the file
         });
+        
 
-      g_terminal.show(preserveFocus);
+      g_terminal.show(preserveFocus);*/
 
 
         // Create or show the webview panel
@@ -54,49 +88,12 @@ async function startREPL(preserveFocus: boolean) {
             });
         }
 
+        runAndSendToWebview(g_panel.webview); // Fix this line with correct M2 init
         // Start listening to the output file for changes
-        startOutputListener();
+        //startOutputListener();
     }
 }
 
-function startOutputListener() {
-    if (outputFilePath && g_panel) {
-        console.log(`Watching file: ${outputFilePath}`);
-
-        // Watch the file for changes
-        fs.watch(outputFilePath, (eventType) => {
-            if (eventType === 'change') {
-                console.log(`File changed: ${outputFilePath}`);
-
-                if (outputFilePath) {
-                    // Read only the new data from the file
-                    let stats = fs.statSync(outputFilePath); // Get the current size of the file
-                    let stream = fs.createReadStream(outputFilePath, {
-                        start: filePosition,
-                        end: stats.size
-                    });
-
-                    let newData = '';
-                    stream.on('data', chunk => {
-                        newData += chunk.toString();
-                    });
-
-                    stream.on('end', () => {
-                        filePosition = stats.size; // Update the position for next read
-                        // Remove specific terminal control characters
-                      //newData = newData.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, ''); // Remove ANSI escape codes
-                      //  newData = newData.replace(/\x1B\[\?2004[hl]/g, ''); // Remove specific control sequences
-                        g_panel!.webview.postMessage({ command: 'output', text: newData });
-                    });
-                } else {
-                    console.error('outputFilePath is undefined!');
-                }
-            }
-        });
-    } else {
-        console.error('Output file path or webview panel is undefined!');
-    }
-}
 
 async function executeCode(text: string) {
     if (!text.endsWith("\n")) {
@@ -104,21 +101,14 @@ async function executeCode(text: string) {
     }
 
     await startREPL(true);
-    g_terminal!.show(true);
+    //g_terminal!.show(true);
 
     // Filter out empty lines and send to terminal
     var lines = text.split(/\r?\n/);
     lines = lines.filter(line => line !== '');
     text = lines.join('\n');
 
-  /*
-  // Also append the command itself to the output file for logging
-     if (outputFilePath) {
-     fs.appendFileSync(outputFilePath, text + "\n");
-     }
-   */
-    g_terminal!.sendText(text);
-
+    proc.stdin.write(text); 
 }
 
 function executeSelection() {
@@ -162,9 +152,9 @@ function getWebviewContent(webview: vscode.Webview) {
 }
 
 function handleWebviewMessage(message: any) {
-    switch (message.command) {
+    switch (message.type) {
       case 'execute':
-        executeCode(message.text);
+        executeCode(message.data);
         break;
       case 'focus':
         const editor = vscode.window.activeTextEditor;

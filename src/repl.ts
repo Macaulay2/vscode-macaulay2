@@ -119,8 +119,6 @@ async function executeCode(text: string) {
    */
     g_terminal!.sendText(text);
 
-    // Move the cursor to the next line
-    vscode.commands.executeCommand('cursorMove', { to: 'down', by: 'line', value: 1 });
 }
 
 function executeSelection() {
@@ -132,13 +130,16 @@ function executeSelection() {
     var selection = editor.selection;
     var text = selection.isEmpty ? editor.document.lineAt(selection.start.line).text : editor.document.getText(selection);
 
-    executeCode(text);
+  executeCode(text);
+  // Move the cursor to the next line
+  vscode.commands.executeCommand('cursorMove', { to: 'down', by: 'line', value: 1 });
 }
 
 function getWebviewContent(webview: vscode.Webview) {
   
   const extensionUri = g_context.extensionUri;
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media','main.js'));
+  const VGUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media','VectorGraphics.js'));
   const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media','minimal.css'));
     return `
         <!DOCTYPE html>
@@ -152,6 +153,7 @@ function getWebviewContent(webview: vscode.Webview) {
             <script defer src="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/contrib/auto-render.min.js"></script>
             <link rel="stylesheet" href="${cssUri}">
             <script type="module" src="${scriptUri}"></script>
+            <script type="module" src="${VGUri}"></script>
           </head>
           <body id="terminal" class="M2Text" style="max-height: 90vh">
           </body>
@@ -161,9 +163,13 @@ function getWebviewContent(webview: vscode.Webview) {
 
 function handleWebviewMessage(message: any) {
     switch (message.command) {
-        case 'execute':
-            executeCode(message.text);
-            break;
+      case 'execute':
+        executeCode(message.text);
+        break;
+      case 'focus':
+        const editor = vscode.window.activeTextEditor;
+	vscode.window.showTextDocument(editor.document, editor.viewColumn, false); // restore focus
+	break;
     }
 }
 

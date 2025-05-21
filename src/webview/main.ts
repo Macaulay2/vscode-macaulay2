@@ -13,8 +13,8 @@ window.addEventListener('message', event => {
       // next line is a hack: scroll is already performed by shellEmulator,
       // but it doesn't work on <body>, need to do it on its parent element instead
       outputElement.parentElement.scrollTop=outputElement.parentElement.scrollHeight;
-      // TODO: put focus back on editor:
-      // editor.focus()
+      // put focus back on editor:
+      vscode.postMessage({ command: 'focus' });
       break;
   }
 });

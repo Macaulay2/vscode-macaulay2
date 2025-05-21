@@ -30,13 +30,15 @@ function runAndSendToWebview(webview: vscode.Webview) {
     });
 
     proc.stderr.on('data', (data) => {
+        console.log('M2 stderr:', data.toString());
         webview.postMessage({
             type: 'output',
             data: data.toString()
         });
     });
 
-    proc.on('close', (code) => {
+  proc.on('close', (code) => {
+    proc = undefined;
         webview.postMessage({
             type: 'exit',
             code
@@ -52,11 +54,6 @@ function startREPLCommand(context: vscode.ExtensionContext) {
 
 async function startREPL(preserveFocus: boolean) {
     if (proc === undefined) {
-        let exepath = vscode.workspace.getConfiguration("macaulay2").get<string>("executablePath");
-        let editor = vscode.window.activeTextEditor;
-        let fullpath = editor!.document.uri.path;
-        let dirpath = path.dirname(fullpath);
-
         // Create or show the webview panel
         if (g_panel === undefined) {
             g_panel = vscode.window.createWebviewPanel(
@@ -84,20 +81,19 @@ async function startREPL(preserveFocus: boolean) {
 
 
 async function executeCode(text: string) {
-    if (!text.endsWith("\n")) {
-        text = text + '\n';
-    }
-
     await startREPL(true);
-    //g_terminal!.show(true);
 
     // Filter out empty lines and send to terminal
     var lines = text.split(/\r?\n/);
     lines = lines.filter(line => line !== '');
     text = lines.join('\n');
 
+    if (!text.endsWith("\n")) {
+        text = text + '\n';
+    }
+
     if (proc && proc.stdin) {
-        proc.stdin.write(text + '\n');
+        proc.stdin.write(text);
     } else {
         vscode.window.showErrorMessage("Macaulay2 process is not running.");
     }

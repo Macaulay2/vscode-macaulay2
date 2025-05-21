@@ -54,9 +54,6 @@ Array.prototype.sortedPush = function (el: any) {
   return this.length;
 };
 
-const processCell = function(a,b) {
-} // TODO remember what this is
-
 const Shell = function (
   terminal: HTMLElement,
   emitInput: (msg: string) => void,
@@ -145,11 +142,94 @@ const Shell = function (
 
   const codeStack = []; // stack of past code run
 
+  obj.codeInputAction = function (t) {
+    let str = t.dataset.m2code ? t.dataset.m2code : t.textContent; // used to be innerText
+    if (str[str.length - 1] == "\n") str = str.substring(0, str.length - 1); // cleaner this way
+    t.dataset.m2code = str;
+    t.classList.add("codetrigger");
+    if (
+      (t.tagName == "CODE" && !t.classList.contains("norun")) ||
+      t.classList.contains("run")
+    ) {
+      t.classList.add("clicked");
+      codeStack.push(t);
+      obj.postMessage(str);
+    } else {
+      // past input / manual code: almost the same but not quite: code not sent, just replaces input
+      // inputSpan.textContent = str;
+      // setCaretAtEndMaybe(inputSpan);
+      inputSpan.focus();
+      document.execCommand("selectAll");
+      document.execCommand("insertText", false, str);
+      scrollDown(terminal);
+    }
+    setTimeout(() => {
+      t.classList.remove("codetrigger");
+    }, 100);
+  };
+
   const returnSymbol = "\u21B5";
+
+  // borrowed from editor.ts
+  const sanitizeInput = function (msg: string) {
+  // sanitize input
+  //  return msg.replace(sanitizeRegEx, "").replace(/\n+$/, "");
+  return msg.replace(webAppRegex, "").replace(/\n+$/, "");
+  };
+  const htmlToM2 = function (el: HTMLElement) {
+  return el.textContent.replace("−", "-");
+  };
+
+
+  obj.postMessage = function (msg) {
+    // send input, adding \n if necessary
+    const clean = sanitizeInput(msg);
+    if (procInputSpan === null) {
+      // it'd be nicer to use ::before on inputSpan but sadly caret issues... cf https://stackoverflow.com/questions/60843694/cursor-position-in-an-editable-div-with-a-before-pseudo-element
+      procInputSpan = document.createElement("div");
+      inputSpan.parentElement.insertBefore(procInputSpan, inputSpan);
+    }
+    procInputSpan.textContent += clean + returnSymbol + "\n";
+    inputSpan.textContent = "";
+    scrollDownLeft(terminal);
+    emitInput(clean + "\n");
+  };
 
   const focusElement = function () {
     const foc = window.getSelection().focusNode;
     return foc && foc.nodeType == 3 ? foc.parentElement : foc;
+  };
+
+  const downArrowKeyHandling = function () {
+    if (
+      focusElement() == inputSpan &&
+      inputSpan.textContent.substring(getCaret(inputSpan) || 0).indexOf("\n") <
+        0 &&
+      cmdHistory.index < cmdHistory.length
+    ) {
+      cmdHistory.index++;
+      inputSpan.textContent =
+        cmdHistory.index === cmdHistory.length
+          ? cmdHistory.current
+          : cmdHistory[cmdHistory.index];
+      return true;
+    } else return false;
+  };
+
+  const upArrowKeyHandling = function () {
+    if (
+      focusElement() == inputSpan &&
+      inputSpan.textContent
+        .substring(0, getCaret(inputSpan) || 0)
+        .indexOf("\n") < 0 &&
+      cmdHistory.index > 0
+    ) {
+      if (cmdHistory.index === cmdHistory.length)
+        cmdHistory.current = htmlToM2(inputSpan);
+      cmdHistory.index--;
+      inputSpan.textContent = cmdHistory[cmdHistory.index];
+      return true;
+    } else return false;
   };
 
 
@@ -168,13 +248,11 @@ const Shell = function (
     let t = e.target as HTMLElement;
     while (t != terminal) {
       if (
-        t.classList.contains("M2CellBar") ||
-        t.tagName == "A" ||
-        t.tagName == "INPUT" ||
-        t.tagName == "BUTTON" ||
         t.classList.contains("M2PastInput")
-      )
+      ) {
+	obj.codeInputAction(t);
         return;
+      }
       t = t.parentElement;
     }
     if (document.activeElement != inputSpan) {
@@ -183,22 +261,89 @@ const Shell = function (
     }
   };
 
-  /*
-  terminal.onbeforeinput = function (e) {
-    //    console.log("inputSpan beforeinput: " + e.inputType);
-    if (!e.inputType) e.preventDefault(); // prevent messed up pasting of editor into input span during syntax hilite (TEMP?)
-  };
-  inputSpan.oninput = function (e) { // pointless to attach events to inputSpan
+  let savepos = null;
+  terminal.onkeydown = function (e: KeyboardEvent) {
+    if (!inputSpan) return;
     if (
-      inputSpan.parentElement == htmlSec &&
-      htmlSec.classList.contains("M2Input")
+      (e.target as HTMLElement).classList.contains("M2CellBar") ||
+      (e.target as HTMLElement).tagName == "INPUT"
     )
-      delayedHighlight(htmlSec);
-      // multiple problems: 
-      // the test should be when hiliting, not delayed!!!!
-      // more importantly, Prism breaks existing HTML and that's fatal for inputSpan
+      return;
+    if (e.key == "Enter") {
+      if (!e.shiftKey) {
+        obj.postMessage(htmlToM2(inputSpan));
+        setCaret(inputSpan, 0);
+        e.preventDefault(); // no crappy <div></div> added
+      }
+      e.stopPropagation(); // in case of shift-enter, don't want it to kick in
+      return;
+    }
+
+    if ((e.key == "ArrowDown" || e.key == "ArrowUp") && !e.shiftKey) {
+      if (
+        e.key == "ArrowDown" ? downArrowKeyHandling() : upArrowKeyHandling()
+      ) {
+        e.preventDefault();
+        setCaretAtEndMaybe(inputSpan);
+        scrollDown(terminal);
+        //
+        return;
+      }
+    }
+
+    if (
+      e.ctrlKey ||
+      e.altKey ||
+      e.metaKey ||
+      e.key == "Shift" || // subtly different: shift key pressed (no combo)
+      e.key == "PageUp" ||
+      e.key == "PageDown" ||
+      e.key == "F1"
+    ) {
+      // do not move caret on Ctrl/Command combos, PageUp/Down, etc
+      if (e.key == "PageUp" && document.activeElement == inputSpan) {
+        savepos = getCaret(inputSpan);
+        // this prevents the annoying behavior of page up going to start of inputSpan => weird horiz scrolling
+        setCaret(inputSpan, 0);
+      }
+      if (e.key == "PageDown" && document.activeElement == inputSpan) {
+        // this prevents the annoying behavior of page down going to end of inputSpan => weird horiz scrolling
+        setCaret(inputSpan, inputSpan.textContent.length);
+      }
+      return;
+    }
+
+    if (e.key == "Home") {
+      setCaret(inputSpan, 0); // the default would sometimes use this for vertical scrolling
+      scrollDownLeft(terminal);
+      return;
+    }
+
+    if (e.key == "End") {
+      setCaretAtEndMaybe(inputSpan); // the default would sometimes use this for vertical scrolling
+      scrollDown(terminal);
+      return;
+    }
+
+    setCaretAtEndMaybe(inputSpan, true);
+    const pos = getCaret(inputSpan);
+    if (pos == 0) scrollLeft(terminal);
+
   };
-  */
+
+  terminal.oninput = function (e: InputEvent) {
+    if (!inputSpan) return;
+    if (document.activeElement == inputSpan && getCaret(inputSpan) == 0)
+      scrollLeft(terminal);
+  };
+
+  terminal.onkeyup = function (e: KeyboardEvent) {
+    if (!inputSpan) return;
+    if (savepos !== null) {
+      setCaret(inputSpan, savepos);
+      savepos = null;
+    }
+  };
 
   const subList = [];
 
@@ -478,31 +623,6 @@ const Shell = function (
             // but in rare circumstances (ctrl-C interrupt) it may be missing its \n
             const oldHtmlSec = htmlSec;
             closeHtml();
-            if (
-              tag == webAppTags.CellEnd &&
-              isTrueInput() &&
-              codeStack.length > 0
-            ) {
-              processCellBlock: {
-                let i = 0;
-                for (const el of oldHtmlSec.children as HTMLElement[])
-                  if (el.classList.contains("M2PastInput")) {
-                    while (
-                      (i = codeStack[0].dataset.m2code.indexOf(
-                        el.textContent.trimRight(),
-                        i
-                      )) < 0
-                    ) {
-                      codeStack.shift();
-                      if (codeStack.length == 0) break processCellBlock;
-                      i = 0;
-                    }
-                    i += el.textContent.trimRight().length;
-                  }
-                if (!MINIMAL) processCell(oldHtmlSec, codeStack[0]); // or whole thing should be skipped in minimal mode?
-                if (i >= codeStack[0].dataset.m2code.length) codeStack.shift();
-              }
-            }
           }
         } else if (tag === webAppTags.InputContd && inputEndFlag) {
           // continuation of input section

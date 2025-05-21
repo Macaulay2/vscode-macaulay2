@@ -1,7 +1,7 @@
 import { Shell } from './shellEmulator.js';
 
 // @ts-ignore
-// const vscode = acquireVsCodeApi();
+const vscode = acquireVsCodeApi();
 
 const outputElement = document.getElementById('terminal');
 
@@ -22,7 +22,7 @@ window.addEventListener('message', event => {
 
 const myshell = new Shell(
   outputElement,
-  null,
+  (msg) => vscode.postMessage({ command: 'execute', text: msg }),
   null,
   null,
   true

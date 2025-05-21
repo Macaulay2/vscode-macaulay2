@@ -146,7 +146,8 @@ function handleWebviewMessage(message: any) {
         break;
       case 'focus':
         const editor = vscode.window.activeTextEditor;
-	vscode.window.showTextDocument(editor!.document, editor!.viewColumn, false); // restore focus
+	if (editor)
+	  vscode.window.showTextDocument(editor!.document, editor!.viewColumn, false); // restore focus
 	break;
     }
 }

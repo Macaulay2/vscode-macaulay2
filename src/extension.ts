@@ -5,6 +5,7 @@
 import * as vscode from 'vscode';
 import * as completions from "./completionProviders";
 import * as repl from "./repl";
+import client from "./client";
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -16,6 +17,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	completions.activate(context);
 	repl.activate(context);
+	client.start();
 
 }
 

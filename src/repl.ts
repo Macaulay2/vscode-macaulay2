@@ -62,6 +62,7 @@ async function startREPL(preserveFocus: boolean) {
                 vscode.ViewColumn.Two,
                 {
                   enableScripts: true,
+                  retainContextWhenHidden: true,
 		  localResourceRoots: [vscode.Uri.joinPath(g_context!.extensionUri, 'media')],
                 }
             );

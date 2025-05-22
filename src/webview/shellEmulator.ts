@@ -234,7 +234,7 @@ const Shell = function (
     } else return false;
   };
 
-
+  /*
   terminal.onpaste = function (e) {
     if (!inputSpan) return;
     setCaretAtEndMaybe(inputSpan, true);
@@ -243,31 +243,35 @@ const Shell = function (
     // paste w/o formatting
     document.execCommand("insertText", false, txt);
     scrollDown(terminal);
-  };
+    };
+   */
 
   terminal.onclick = function (e) {
     if (!inputSpan || !window.getSelection().isCollapsed) return;
     let t = e.target as HTMLElement;
-    let href = ""; // ugly
     while (t != terminal) {
+      if (t.tagName == "A") {
+	const href=t.getAttribute("href");
+	if (href.startsWith("file://")) t.setAttribute("href","#editor:"+href.substring(7)); // TODO should pass it to main.ts instead for handling
+	else {
+	  const [name, rowcols] = parseLocation(href);
+	  if (rowcols) {
+            if (name == "stdio") {
+	      obj.selectPastInput(document.activeElement, rowcols);
+	      e.preventDefault();
+	    }
+	  }};
+	return;
+      };
       if (
-	((t.tagName == "CODE" && language(t) == "Macaulay2") ||
-          t.dataset.m2code || // allows to emulate code pasting from arbitrary html element
-          t.classList.contains("M2PastInput")) &&
-	  t.ownerDocument.getSelection().isCollapsed
+        t.classList.contains("M2CellBar") ||
+        t.tagName == "INPUT" ||
+        t.tagName == "BUTTON" ||
+        t.classList.contains("M2PastInput")
       ) {
 	obj.codeInputAction(t);
         return;
-      }
-      else if (t.tagName == "A") { href = (t as HTMLAnchorElement).getAttribute("href"); } // we're not sure yet if we should intercept
-      else if (t.classList.contains("M2ErrorLocation") && href) {
-	let [name, rowcols] = parseLocation(href);
-	name = name.substring(1); // remove "#"
-	if (rowcols) {
-	  obj.selectPastInput(t, rowcols);
-	}
-	return;
-      }
+      };
       t = t.parentElement;
     }
     if (document.activeElement != inputSpan) {
@@ -469,7 +473,7 @@ const Shell = function (
         !iFrame ||
         (window.location.protocol == "https:" && url.startsWith("http://")) // no insecure in frame
       )
-        window.open(url, "M2 browse");
+        window.open(url, "M2 browse"); // doesn't work in vscode iframe
       else if (url.startsWith("#")) document.location.hash = url;
       else {
         const url1 = new URL(url, "file://");
@@ -513,8 +517,7 @@ const Shell = function (
           ".M2ErrorLocation a"
         ) as NodeListOf<HTMLAnchorElement>
       ).forEach((x) => {
-	let [name, rowcols] = parseLocation(x.getAttribute("href"));
-	name = name.substring(1); // remove "#"
+	const [name, rowcols] = parseLocation(x.getAttribute("href"));
         if (rowcols) {
           // highlight error
           if (name == "stdio") {

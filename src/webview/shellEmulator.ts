@@ -13,7 +13,8 @@ import {
   locateRowColumn,
   locateOffset,
   addMarkerPos,
-  language
+  language,
+  parseLocation
 } from "./htmlTools.js";
 
 
@@ -247,6 +248,7 @@ const Shell = function (
   terminal.onclick = function (e) {
     if (!inputSpan || !window.getSelection().isCollapsed) return;
     let t = e.target as HTMLElement;
+    let href = ""; // ugly
     while (t != terminal) {
       if (
 	((t.tagName == "CODE" && language(t) == "Macaulay2") ||
@@ -256,6 +258,15 @@ const Shell = function (
       ) {
 	obj.codeInputAction(t);
         return;
+      }
+      else if (t.tagName == "A") { href = (t as HTMLAnchorElement).getAttribute("href"); } // we're not sure yet if we should intercept
+      else if (t.classList.contains("M2ErrorLocation") && href) {
+	let [name, rowcols] = parseLocation(href);
+	name = name.substring(1); // remove "#"
+	if (rowcols) {
+	  obj.selectPastInput(t, rowcols);
+	}
+	return;
       }
       t = t.parentElement;
     }
@@ -499,51 +510,27 @@ const Shell = function (
       // error highlighting
       Array.from(
         htmlSec.querySelectorAll(
-          ".M2ErrorLocation a[href*=editor]"
+          ".M2ErrorLocation a"
         ) as NodeListOf<HTMLAnchorElement>
       ).forEach((x) => {
-        const m = x.getAttribute("href").match(
-          // .href would give the expanded url, not the original one
-          /^#editor:([^:]+):(\d+):(\d+)/ // cf similar pattern in extra.ts
-        );
-        if (m) {
+	let [name, rowcols] = parseLocation(x.getAttribute("href"));
+	name = name.substring(1); // remove "#"
+        if (rowcols) {
           // highlight error
-          if (m[1] == "stdio") {
+          if (name == "stdio") {
             const nodeOffset = obj.locateStdio(
               sessionCell(htmlSec),
-              +m[2],
-              +m[3]
+              rowcols[0],
+              rowcols[1]
             );
             if (nodeOffset) {
               addMarkerPos(nodeOffset[0], nodeOffset[1]).classList.add(
                 "error-marker"
               );
             }
-          } else if (editor) {
-            // check if by any chance file is open in editor
-            const fileNameEl = document.getElementById(
-              "editorFileName"
-            ) as HTMLInputElement;
-            if (fileNameEl.value == m[1]) {
-              // should this keep track of path somehow? needs more testing
-              const pos = locateRowColumn(editor.textContent, +m[2], +m[3]);
-              if (pos !== null) {
-                const nodeOffset = locateOffset(editor, pos);
-                if (nodeOffset) {
-                  const marker = addMarkerPos(nodeOffset[0], nodeOffset[1]);
-                  marker.classList.add("error-marker");
-                  setTimeout(function () {
-                    marker.scrollIntoView({
-                      behavior: "smooth",
-                      block: "center",
-                      inline: "end",
-                    });
-                  }, 100); // seems 0 doesn't always trigger
-                }
-              }
-            }
-          }
-        }
+	  }
+	  // TODO other cases
+	}
       });
       // putting pieces back together
       if (htmlSec.dataset.idList) {

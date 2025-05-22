@@ -46,8 +46,6 @@ function runAndSendToWebview(webview: vscode.Webview) {
     });
 }
 
-
-
 function startREPLCommand(context: vscode.ExtensionContext) {
     startREPL(false);
 }
@@ -59,7 +57,7 @@ async function startREPL(preserveFocus: boolean) {
             g_panel = vscode.window.createWebviewPanel(
                 'macaulay2Output',
                 'Macaulay2 Output',
-                vscode.ViewColumn.Two,
+                {viewColumn: vscode.ViewColumn.Two, preserveFocus: preserveFocus},
                 {
                   enableScripts: true,
                   retainContextWhenHidden: true,

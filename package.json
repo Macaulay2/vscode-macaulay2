@@ -54,7 +54,7 @@
 			"properties": {
 				"macaulay2.executablePath": {
 					"type": "string",
-					"default": "/Applications/Macaulay2-1.13/bin/m2",
+					"default": "M2",
 					"description": "Location of Macaulay2 executable",
 					"scope": "application"
 				}
@@ -77,7 +77,11 @@
 		"watch-backend": "tsc -w -p tsconfig.backend.json",
 		"watch-webview": "tsc -w -p tsconfig.webview.json",
 		"watch": "npm-run-all --parallel watch-backend watch-webview",
-		"test": "npm run compile && node ./node_modules/vscode/bin/test"
+		"test": "npm run compile && node ./node_modules/vscode/bin/test",
+		"update": "M2 --script generate-grammar.m2",
+		"watch": "tsc -watch -p ./",
+		"test": "npm run compile && node ./node_modules/vscode/bin/test",
+		"update": "M2 --script generate-grammar.m2"
 	},
 	"devDependencies": {
 		"@types/mocha": "^2.2.48",

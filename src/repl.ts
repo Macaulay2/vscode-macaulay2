@@ -68,11 +68,15 @@ async function startREPL(preserveFocus: boolean) {
 
           g_panel.webview.html = getWebviewContent(g_panel.webview);
 
-            g_panel.webview.onDidReceiveMessage(handleWebviewMessage);
+        g_panel.webview.onDidReceiveMessage(handleWebviewMessage);
 
-            g_panel.onDidDispose(() => {
-                g_panel = undefined;
-            });
+        g_panel.onDidDispose(() => {
+            g_panel = undefined;
+            if (proc) {
+                proc.kill();
+                proc = undefined;
+            }
+        });
         }
 
         runAndSendToWebview(g_panel.webview); 

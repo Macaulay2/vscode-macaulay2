@@ -17,7 +17,7 @@ function runAndSendToWebview(webview: vscode.Webview) {
         vscode.window.showErrorMessage("Macaulay2 executable path is not set. Please configure 'macaulay2.executablePath' in your settings.");
         return;
     }
-    proc = spawn(exepath, ['--webapp']);
+    proc = spawn(exepath, ['--webapp', '2>&1'], { shell: true });
     console.log('M2 process started');
 
     proc.stdout.on('data', (data) => {
@@ -29,6 +29,7 @@ function runAndSendToWebview(webview: vscode.Webview) {
         });
     });
 
+  /*
     proc.stderr.on('data', (data) => {
         console.log('M2 stderr:', data.toString());
         webview.postMessage({
@@ -36,6 +37,7 @@ function runAndSendToWebview(webview: vscode.Webview) {
             data: data.toString()
         });
     });
+   */
 
   proc.on('close', (code) => {
     proc = undefined;

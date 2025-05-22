@@ -78,9 +78,6 @@
 		"watch-webview": "tsc -w -p tsconfig.webview.json",
 		"watch": "npm-run-all --parallel watch-backend watch-webview",
 		"test": "npm run compile && node ./node_modules/vscode/bin/test",
-		"update": "M2 --script generate-grammar.m2",
-		"watch": "tsc -watch -p ./",
-		"test": "npm run compile && node ./node_modules/vscode/bin/test",
 		"update": "M2 --script generate-grammar.m2"
 	},
 	"devDependencies": {

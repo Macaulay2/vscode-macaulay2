@@ -9,7 +9,7 @@
 	},
 	"publisher": "coreysharris",
 	"engines": {
-		"vscode": "^1.36.0"
+		"vscode": "^1.100.0"
 	},
 	"categories": [
 		"Programming Languages"
@@ -84,7 +84,7 @@
 	"devDependencies": {
 		"@types/mocha": "^2.2.48",
 		"@types/node": "^10.12.21",
-		"@types/vscode": "^1.36.0",
+		"@types/vscode": "^1.100.0",
         "rimraf": "^6.0.1",
 		"npm-run-all": "^4.1.5",
 		"tslint": "^5.12.1",

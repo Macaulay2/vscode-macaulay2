@@ -247,20 +247,17 @@ const Shell = function (
    */
 
   terminal.onclick = function (e) {
-    if (!inputSpan || !window.getSelection().isCollapsed) return;
     let t = e.target as HTMLElement;
     while (t != terminal) {
       if (t.tagName == "A") {
 	const href=t.getAttribute("href");
-	if (href.startsWith("file://")) t.setAttribute("href","#editor:"+href.substring(7)); // TODO should pass it to main.ts instead for handling
-	else {
-	  const [name, rowcols] = parseLocation(href);
-	  if (rowcols) {
-            if (name == "stdio") {
-	      obj.selectPastInput(document.activeElement, rowcols);
-	      e.preventDefault();
+	const [name, rowcols] = parseLocation(href);
+	if (rowcols) {
+          if (name == "stdio") {
+	    obj.selectPastInput(document.activeElement, rowcols);
+	    e.preventDefault();
 	    }
-	  }};
+	};
 	return;
       };
       if (
@@ -269,6 +266,7 @@ const Shell = function (
         t.tagName == "BUTTON" ||
         t.classList.contains("M2PastInput")
       ) {
+	if (!inputSpan) return;
 	obj.codeInputAction(t);
         return;
       };
@@ -466,21 +464,6 @@ const Shell = function (
       );
        */
       htmlSec.classList.add("M2PastInput");
-    } else if (htmlSec.classList.contains("M2Url")) {
-      let url = htmlSec.dataset.code.trim();
-      console.log("Opening URL " + url);
-      if (
-        !iFrame ||
-        (window.location.protocol == "https:" && url.startsWith("http://")) // no insecure in frame
-      )
-        window.open(url, "M2 browse"); // doesn't work in vscode iframe
-      else if (url.startsWith("#")) document.location.hash = url;
-      else {
-        const url1 = new URL(url, "file://");
-        url = url1.toString();
-        if (url.startsWith("file://")) url = url.slice(7);
-        iFrame.src = url;
-      }
     } else if (htmlSec.classList.contains("M2Html")) {
       // first things first: make sure we don't mess with input (interrupts, tasks, etc, can display unexpectedly)
       if (anc.classList.contains("M2Input")) {
@@ -511,6 +494,16 @@ const Shell = function (
           ))
       );
        */
+      // auto opening links
+      Array.from(
+        htmlSec.querySelectorAll(
+          "a.auto"
+        ) as NodeListOf<HTMLAnchorElement>
+      ).forEach((x) => {
+	let url = x.href; // or getAttribute?
+	console.log("Opening URL " + url);
+	x.click();
+      });
       // error highlighting
       Array.from(
         htmlSec.querySelectorAll(
@@ -562,6 +555,7 @@ const Shell = function (
       // stack
       // in case it's inside TeX, we compute dimensions
       // 18mu= 1em * mathfont size modifier, here 1.21 factor of KaTeX
+      const unitName = "em"; // TEMP replace with "ce" eventually
       const fontSize: number =
         +window
           .getComputedStyle(htmlSec, null)
@@ -573,14 +567,14 @@ const Shell = function (
         subList.length +
         "}{\\vphantom{" + // the vphantom ensures proper horizontal space
         "\\raisebox{" +
-        baseline / fontSize +
-        "ce}{}" +
+        baseline / fontSize + unitName +
+        "}{}" +
         "\\raisebox{" +
-        (baseline - htmlSec.offsetHeight) / fontSize +
-        "ce}{}" +
+        (baseline - htmlSec.offsetHeight) / fontSize + unitName +
+        "}{}" +
         "}\\hspace{" +
-        htmlSec.offsetWidth / fontSize +
-        "ce}" + // the hspace is really just for debugging
+        htmlSec.offsetWidth / fontSize + unitName +
+        "}" + // the hspace is really just for debugging
         "}";
       anc.dataset.code += str;
       if (!anc.dataset.idList) anc.dataset.idList = subList.length;

@@ -1,26 +1,27 @@
-import { Shell } from './shellEmulator.js';
+import { Shell } from "./shellEmulator.js";
 
 // @ts-ignore
 const vscode = acquireVsCodeApi();
 
-const outputElement = document.getElementById('terminal');
+const outputElement = document.getElementById("terminal");
 
-window.addEventListener('message', event => {    
+window.addEventListener("message", (event) => {
   const message = event.data;
   switch (message.type) {
-    case 'output':
-            myshell.displayOutput(message.data);
+    case "output":
+      myshell.displayOutput(message.data);
       // next line is a hack: scroll is already performed by shellEmulator,
       // but it doesn't work on <body>, need to do it on its parent element instead
-      if (outputElement && outputElement.parentElement) { // check  nonempty
-        outputElement.parentElement.scrollTop = outputElement.parentElement.scrollHeight;
+      if (outputElement && outputElement.parentElement) {
+        // check  nonempty
+        outputElement.parentElement.scrollTop =
+          outputElement.parentElement.scrollHeight;
       }
       // put focus back on editor:
-      vscode.postMessage({ type: 'focus' });
+      vscode.postMessage({ type: "focus" });
       break;
   }
 });
-
 
 if (!outputElement) {
   throw new Error("Terminal output element not found.");
@@ -28,10 +29,10 @@ if (!outputElement) {
 
 const myshell = new Shell(
   outputElement,
-  (msg) => vscode.postMessage({ type: 'execute', data : msg }),
+  (msg) => vscode.postMessage({ type: "execute", data: msg }),
   null,
   null,
-  true
+  true,
 );
 
 console.log("Shell created.");

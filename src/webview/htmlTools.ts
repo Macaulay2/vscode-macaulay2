@@ -148,7 +148,7 @@ const setCaret = function (el, pos1: number, pos2?: number, mark?: boolean) {
       nodeOffsets[0],
       nodeOffsets[1],
       nodeOffsets[2],
-      nodeOffsets[3]
+      nodeOffsets[3],
     );
     if (mark) return addMarkerPos(nodeOffsets[2], nodeOffsets[3]);
   }
@@ -240,7 +240,7 @@ const selectRowColumn = function (el, rowcols) {
     nodesOffsets[0],
     nodesOffsets[1],
     nodesOffsets[2],
-    nodesOffsets[3]
+    nodesOffsets[3],
   );
 
   const marker = addMarkerPos(nodesOffsets[2], nodesOffsets[3]);
@@ -290,7 +290,7 @@ const addMarkerEl = function (el, pos, perma?) {
 const stripId = function (el) {
   // remove "id" from *children* of el. useful for cloned elements
   Array.from(el.querySelectorAll("[id]")).forEach((x) =>
-    (x as HTMLElement).removeAttribute("id")
+    (x as HTMLElement).removeAttribute("id"),
   );
 };
 
@@ -311,7 +311,7 @@ const parseLocation = function (arg: string) {
   // figure out filename
   const m = arg.match(
     //    /([^:]*)(?::(\d+)(?::(\d+)|)(?:-(\d+)(?::(\d+)|)|)|)/
-    /^([^#]+)#(\D*)(\d+)(?::(\D*)(\d+)|)(?:-(\D*)(\d+)(?::(\D*)(\d+)|)|)/
+    /^([^#]+)#(\D*)(\d+)(?::(\D*)(\d+)|)(?:-(\D*)(\d+)(?::(\D*)(\d+)|)|)/,
   ) as any; // e.g. test.m2#3:5-5:7 or test.m2#L3:C5-L5:C7
   if (!m) return [arg, null];
   const rowcols = [];
@@ -327,7 +327,6 @@ const parseLocation = function (arg: string) {
     rowcols[3] = rowcols[1];
   return [m[1], rowcols];
 };
-
 
 export {
   scrollDownLeft,
@@ -351,5 +350,5 @@ export {
   addMarkerPos,
   stripId,
   language,
-  parseLocation
+  parseLocation,
 };

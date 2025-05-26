@@ -14,9 +14,8 @@ import {
   locateOffset,
   addMarkerPos,
   language,
-  parseLocation
+  parseLocation,
 } from "./htmlTools.js";
-
 
 // import Prism from "prismjs"; // TODO reinstate
 
@@ -61,7 +60,7 @@ const Shell = function (
   emitInput: (msg: string) => void,
   editor: HTMLElement,
   iFrame: HTMLFrameElement,
-  createInputSpan: boolean
+  createInputSpan: boolean,
 ) {
   // Shell is an old-style javascript oop constructor
   // we're using arguments as private variables, cf
@@ -174,14 +173,13 @@ const Shell = function (
 
   // borrowed from editor.ts
   const sanitizeInput = function (msg: string) {
-  // sanitize input
-  //  return msg.replace(sanitizeRegEx, "").replace(/\n+$/, "");
-  return msg.replace(webAppRegex, "").replace(/\n+$/, "");
+    // sanitize input
+    //  return msg.replace(sanitizeRegEx, "").replace(/\n+$/, "");
+    return msg.replace(webAppRegex, "").replace(/\n+$/, "");
   };
   const htmlToM2 = function (el: HTMLElement) {
-  return el.textContent.replace("−", "-");
+    return el.textContent.replace("−", "-");
   };
-
 
   obj.postMessage = function (msg) {
     // send input, adding \n if necessary
@@ -247,29 +245,30 @@ const Shell = function (
    */
 
   terminal.onclick = function (e) {
+    if (!inputSpan) return;
     let t = e.target as HTMLElement;
     while (t != terminal) {
-      if (t.tagName == "A") {
-	const href=t.getAttribute("href");
-	const [name, rowcols] = parseLocation(href);
-	if (rowcols) {
-          if (name == "stdio") {
-	    obj.selectPastInput(document.activeElement, rowcols);
-	    e.preventDefault();
-	    }
-	};
-	return;
-      };
       if (
-        t.classList.contains("M2CellBar") ||
-        t.tagName == "INPUT" ||
-        t.tagName == "BUTTON" ||
-        t.classList.contains("M2PastInput")
+        ((t.tagName == "CODE" && language(t) == "Macaulay2") ||
+          t.dataset.m2code || // allows to emulate code pasting from arbitrary html element
+          t.classList.contains("M2PastInput")) &&
+        t.ownerDocument.getSelection().isCollapsed
       ) {
-	if (!inputSpan) return;
-	obj.codeInputAction(t);
+        e.stopPropagation();
+        obj.codeInputAction(t);
         return;
-      };
+      } else if (t.tagName == "A") {
+        const href = t.getAttribute("href");
+        const [name, rowcols] = parseLocation(href);
+        if (rowcols) {
+          if (name == "stdio") {
+            obj.selectPastInput(document.activeElement, rowcols);
+            e.preventDefault();
+          }
+        }
+        return;
+      }
+      if (t.classList.contains("M2CellBar")) return;
       t = t.parentElement;
     }
     if (document.activeElement != inputSpan) {
@@ -345,7 +344,6 @@ const Shell = function (
     setCaretAtEndMaybe(inputSpan, true);
     const pos = getCaret(inputSpan);
     if (pos == 0) scrollLeft(terminal);
-
   };
 
   terminal.oninput = function (e: InputEvent) {
@@ -476,10 +474,9 @@ const Shell = function (
       // @ts-ignore
       renderMathInElement(htmlSec, {
         strict: false,
-	trust: true,
-	delimiters: [
-          {left: "$", right: "$", display: false},
-        ]});
+        trust: true,
+        delimiters: [{ left: "$", right: "$", display: false }],
+      });
       // syntax highlighting code
       /*
       Array.from(
@@ -496,37 +493,35 @@ const Shell = function (
        */
       // auto opening links
       Array.from(
-        htmlSec.querySelectorAll(
-          "a.auto"
-        ) as NodeListOf<HTMLAnchorElement>
+        htmlSec.querySelectorAll("a.auto") as NodeListOf<HTMLAnchorElement>,
       ).forEach((x) => {
-	let url = x.href; // or getAttribute?
-	console.log("Opening URL " + url);
-	x.click();
+        let url = x.href; // or getAttribute?
+        console.log("Opening URL " + url);
+        x.click();
       });
       // error highlighting
       Array.from(
         htmlSec.querySelectorAll(
-          ".M2ErrorLocation a"
-        ) as NodeListOf<HTMLAnchorElement>
+          ".M2ErrorLocation a",
+        ) as NodeListOf<HTMLAnchorElement>,
       ).forEach((x) => {
-	const [name, rowcols] = parseLocation(x.getAttribute("href"));
+        const [name, rowcols] = parseLocation(x.getAttribute("href"));
         if (rowcols) {
           // highlight error
           if (name == "stdio") {
             const nodeOffset = obj.locateStdio(
               sessionCell(htmlSec),
               rowcols[0],
-              rowcols[1]
+              rowcols[1],
             );
             if (nodeOffset) {
               addMarkerPos(nodeOffset[0], nodeOffset[1]).classList.add(
-                "error-marker"
+                "error-marker",
               );
             }
-	  }
-	  // TODO other cases
-	}
+          }
+          // TODO other cases
+        }
       });
       // putting pieces back together
       if (htmlSec.dataset.idList) {
@@ -567,13 +562,16 @@ const Shell = function (
         subList.length +
         "}{\\vphantom{" + // the vphantom ensures proper horizontal space
         "\\raisebox{" +
-        baseline / fontSize + unitName +
+        baseline / fontSize +
+        unitName +
         "}{}" +
         "\\raisebox{" +
-        (baseline - htmlSec.offsetHeight) / fontSize + unitName +
+        (baseline - htmlSec.offsetHeight) / fontSize +
+        unitName +
         "}{}" +
         "}\\hspace{" +
-        htmlSec.offsetWidth / fontSize + unitName +
+        htmlSec.offsetWidth / fontSize +
+        unitName +
         "}" + // the hspace is really just for debugging
         "}";
       anc.dataset.code += str;
@@ -663,7 +661,7 @@ const Shell = function (
     // find relevant input from stdio:row:column
     const query = '.M2PastInput[data-positions*=" ' + row + ':"]';
     const pastInputs = Array.from(
-      cel.querySelectorAll(query) as NodeListOf<HTMLElement>
+      cel.querySelectorAll(query) as NodeListOf<HTMLElement>,
     );
     if (pastInputs.length == 0) return null;
 
@@ -679,7 +677,7 @@ const Shell = function (
     const offset = locateRowColumn(
       txt,
       row - +m1[1] + 1,
-      row == +m1[1] ? column - +m1[2] : column
+      row == +m1[1] ? column - +m1[2] : column,
     );
     if (offset === null) return null;
     const nodeOffset = locateOffset(pastInputs[i], offset);
@@ -700,7 +698,7 @@ const Shell = function (
       nodeOffset1[0],
       nodeOffset1[1],
       nodeOffset2[0],
-      nodeOffset2[1]
+      nodeOffset2[1],
     );
     const marker = addMarkerPos(nodeOffset2[0], nodeOffset2[1]);
     if (rowcols[0] == rowcols[2] && rowcols[1] == rowcols[3])

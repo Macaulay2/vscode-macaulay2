@@ -17,7 +17,7 @@ webAppTagCodes.forEach((x) => {
 });
 
 const webAppRegex = new RegExp(
-  "([" + Object.values(webAppTags).join("") + "])"
+  "([" + Object.values(webAppTags).join("") + "])",
 );
 
 export { webAppTags, webAppClasses, webAppRegex };

@@ -2,7 +2,6 @@
     "compilerOptions": {
 	"module": "esnext",
 	"target": "es2020",
-	"moduleResolution": "bundler",
 	"rootDir": "src/webview",
 	"outDir": "media",
 	"lib": [
@@ -10,9 +9,10 @@
 	    "dom"
 	],
 	"sourceMap": false, /* sadly doesn't work in vscode anyway */
-	"strict": false,   /* enable all strict type-checking options */
+	"strict": false,   /* disable all strict type-checking options */
 	"esModuleInterop": true,
-	"skipLibCheck": true	
+	"skipLibCheck": true,
+	"moduleResolution": "bundler",
     },
     "include": [
 	"src/webview/**/*.ts"

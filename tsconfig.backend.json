@@ -2,18 +2,18 @@
     "compilerOptions": {
 	"module": "commonjs",
 	"target": "es2020",
+	"rootDir": "src/backend",
 	"outDir": "out",
-	"rootDir": "src",
 	"lib": [
 	    "es2020",
 	    "dom"
 	],
 	"sourceMap": true,
-	"strict": false,   /* enable all strict type-checking options */
+	"strict": false,   /* disable all strict type-checking options */
 	"esModuleInterop": true,
 	"skipLibCheck": true
     },
-    "exclude": [
-	"src/webview/**/*.ts"
+    "include": [
+	"src/backend/**/*.ts"
     ]
 }

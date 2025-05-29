@@ -57,7 +57,7 @@ Array.prototype.sortedPush = function (el: any) {
 
 const Shell = function (
   terminal: HTMLElement,
-  emitInput: (msg: string) => void,
+  emitInput: (type: string, msg?: string) => void,
   editor: HTMLElement,
   iFrame: HTMLFrameElement,
   createInputSpan: boolean,
@@ -192,7 +192,7 @@ const Shell = function (
     procInputSpan.textContent += clean + returnSymbol + "\n";
     inputSpan.textContent = "";
     scrollDownLeft(terminal);
-    emitInput(clean + "\n");
+    emitInput("input", clean + "\n");
   };
 
   const focusElement = function () {
@@ -656,6 +656,23 @@ const Shell = function (
       htmlSec.insertBefore(node, inputSpan);
     else htmlSec.appendChild(node);
   };
+
+  obj.reset = function () {
+    console.log("Reset");
+    emitInput("reset");
+    createInputEl(); // recreate the input area
+    interpreterDepth = 1;
+  };
+  const resetBtn = document.getElementById("resetBtn");
+  if (resetBtn) resetBtn.onclick = obj.reset;
+
+  obj.interrupt = function () {
+    inputSpan.textContent = "";
+    emitInput("input", "\x03"); // TODO fix
+    setCaretAtEndMaybe(inputSpan);
+  };
+  const interruptBtn = document.getElementById("interruptBtn");
+  if (interruptBtn) interruptBtn.onclick = obj.interrupt;
 
   obj.locateStdio = function (cel: HTMLElement, row: number, column: number) {
     // find relevant input from stdio:row:column

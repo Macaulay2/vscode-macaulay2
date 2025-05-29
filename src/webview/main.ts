@@ -29,7 +29,7 @@ if (!outputElement) {
 
 const myshell = new Shell(
   outputElement,
-  (msg) => vscode.postMessage({ type: "execute", data: msg }),
+  (type, msg) => vscode.postMessage({ type: type, data: msg }),
   null,
   null,
   true,

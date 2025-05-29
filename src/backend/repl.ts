@@ -11,7 +11,7 @@ let outputFilePath: string | undefined;
 let filePosition = 0; // Variable to track the current read position in the file
 let proc: ChildProcess | undefined;
 
-function runAndSendToWebview(webview: vscode.Webview) {
+function startM2() {
   let exepath = vscode.workspace
     .getConfiguration("macaulay2")
     .get<string>("executablePath");
@@ -26,15 +26,15 @@ function runAndSendToWebview(webview: vscode.Webview) {
 
   proc.stdout.on("data", (data) => {
     // Send output to webview
-    console.log("M2 stdout:", data.toString());
-    webview.postMessage({
+    // console.log("M2 stdout:", data.toString());
+    g_panel.webview.postMessage({
       type: "output",
       data: data.toString(),
     });
   });
 
   /*
-    proc.stderr.on('data', (data) => {
+  proc.stderr.on('data', (data) => { // no longer needed because of 2>&1
         console.log('M2 stderr:', data.toString());
         webview.postMessage({
             type: 'output',
@@ -43,13 +43,15 @@ function runAndSendToWebview(webview: vscode.Webview) {
     });
    */
 
-  proc.on("close", (code) => {
+  /*
+  proc.on("close", (code) => { // not needed at the moment
     proc = undefined;
-    webview.postMessage({
+    g_panel.webview.postMessage({
       type: "exit",
       code,
     });
   });
+   */
 }
 
 function startREPLCommand(context: vscode.ExtensionContext) {
@@ -85,14 +87,14 @@ async function startREPL(preserveFocus: boolean) {
         }
       });
     }
-
-    runAndSendToWebview(g_panel.webview);
+    startM2();
   }
 }
 
 async function executeCode(text: string) {
   await startREPL(true);
 
+  // TODO: remove this ... (make sure stuff copied from editor has \n) and fix ctrl-C
   // Filter out empty lines and send to terminal
   var lines = text.split(/\r?\n/);
   lines = lines.filter((line) => line !== "");
@@ -101,7 +103,7 @@ async function executeCode(text: string) {
   if (!text.endsWith("\n")) {
     text = text + "\n";
   }
-
+  // ... until here
   if (proc && proc.stdin) {
     proc.stdin.write(text);
   } else {
@@ -131,27 +133,35 @@ function executeSelection() {
 
 function getWebviewContent(webview: vscode.Webview) {
   const extensionUri = g_context!.extensionUri;
-  const htmlPath = vscode.Uri.joinPath(extensionUri, 'media', 'webview.html').fsPath;
-  let html = fs.readFileSync(htmlPath, 'utf8');
+  const htmlPath = vscode.Uri.joinPath(
+    extensionUri,
+    "media",
+    "webview.html",
+  ).fsPath;
+  let html = fs.readFileSync(htmlPath, "utf8");
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, "media", "main.js"),
   );
-  html = html.replace('${scriptUri}', scriptUri.toString());
+  html = html.replace("${scriptUri}", scriptUri.toString());
   const VGUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, "media", "VectorGraphics.js"),
   );
-  html = html.replace('${VGUri}', VGUri.toString());
+  html = html.replace("${VGUri}", VGUri.toString());
   const cssUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, "media", "minimal.css"),
   );
-  html = html.replace('${cssUri}', cssUri.toString());
+  html = html.replace("${cssUri}", cssUri.toString());
   return html;
 }
 
 function handleWebviewMessage(message: any) {
   switch (message.type) {
-    case "execute":
+    case "input":
       executeCode(message.data);
+      break;
+    case "reset":
+      if (proc) proc.kill();
+      startM2();
       break;
     case "focus":
       const editor = vscode.window.activeTextEditor;

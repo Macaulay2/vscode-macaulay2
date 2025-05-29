@@ -11,6 +11,9 @@
     <script type="module" src="${scriptUri}"></script>
     <script type="module" src="${VGUri}"></script>
   </head>
-  <body id="terminal" class="M2Text" style="max-height: 90vh">
+  <body id="terminal" class="M2Text" style="max-height: 90vh; margin-top:0px">
+    <span style="z-index:1; position:fixed; right:0px; top:0px;">
+      <button id="resetBtn">RESET</button><button id="interruptBtn">INTERRUPT</button>
+    </span>
   </body>
 </html>

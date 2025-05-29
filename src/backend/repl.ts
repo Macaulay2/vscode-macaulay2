@@ -131,33 +131,21 @@ function executeSelection() {
 
 function getWebviewContent(webview: vscode.Webview) {
   const extensionUri = g_context!.extensionUri;
+  const htmlPath = vscode.Uri.joinPath(extensionUri, 'media', 'webview.html').fsPath;
+  let html = fs.readFileSync(htmlPath, 'utf8');
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, "media", "main.js"),
   );
+  html = html.replace('${scriptUri}', scriptUri.toString());
   const VGUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, "media", "VectorGraphics.js"),
   );
+  html = html.replace('${VGUri}', VGUri.toString());
   const cssUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, "media", "minimal.css"),
   );
-  return `
-        <!DOCTYPE html>
-        <html lang="en">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Macaulay2 Output</title>
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/katex.min.css">
-            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/katex.min.js"></script>
-            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.13.11/dist/contrib/auto-render.min.js"></script>
-            <link rel="stylesheet" href="${cssUri}">
-            <script type="module" src="${scriptUri}"></script>
-            <script type="module" src="${VGUri}"></script>
-          </head>
-          <body id="terminal" class="M2Text" style="max-height: 90vh">
-          </body>
-        </html>
-    `;
+  html = html.replace('${cssUri}', cssUri.toString());
+  return html;
 }
 
 function handleWebviewMessage(message: any) {

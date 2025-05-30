@@ -668,7 +668,7 @@ const Shell = function (
 
   obj.interrupt = function () {
     inputSpan.textContent = "";
-    emitInput("input", "\x03"); // TODO fix
+    emitInput("interrupt");
     setCaretAtEndMaybe(inputSpan);
   };
   const interruptBtn = document.getElementById("interruptBtn");

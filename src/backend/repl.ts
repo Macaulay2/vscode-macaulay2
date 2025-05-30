@@ -5,10 +5,7 @@ import * as path from "path";
 import { spawn, ChildProcess } from "child_process";
 
 let g_context: vscode.ExtensionContext | undefined;
-let g_terminal: vscode.Terminal | undefined;
 let g_panel: vscode.WebviewPanel | undefined;
-let outputFilePath: string | undefined;
-let filePosition = 0; // Variable to track the current read position in the file
 let proc: ChildProcess | undefined;
 
 function startM2() {
@@ -21,6 +18,7 @@ function startM2() {
     );
     return;
   }
+  //  proc = spawn(exepath, ["--webapp"], { shell: false }); // this would fix SIGINT but break stderr/stdout interleaving
   proc = spawn(exepath, ["--webapp", "2>&1"], { shell: true });
   console.log("M2 process started");
 
@@ -36,7 +34,7 @@ function startM2() {
   /*
   proc.stderr.on('data', (data) => { // no longer needed because of 2>&1
         console.log('M2 stderr:', data.toString());
-        webview.postMessage({
+        g_panel.webview.postMessage({
             type: 'output',
             data: data.toString()
         });
@@ -160,8 +158,13 @@ function handleWebviewMessage(message: any) {
       executeCode(message.data);
       break;
     case "reset":
+      console.log("reset");
       if (proc) proc.kill();
       startM2();
+      break;
+    case "interrupt":
+      console.log("interrupt");
+      proc.kill('SIGINT');
       break;
     case "focus":
       const editor = vscode.window.activeTextEditor;
@@ -184,18 +187,9 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("macaulay2.sendToREPL", executeSelection),
   );
-
-  vscode.window.onDidCloseTerminal((terminal) => {
-    if (terminal === g_terminal) {
-      g_terminal = undefined;
-    }
-  });
 }
 
 export function deactivate() {
-  if (g_terminal) {
-    g_terminal.dispose();
-  }
   if (g_panel) {
     g_panel.dispose();
   }

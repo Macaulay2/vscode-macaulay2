@@ -25,10 +25,11 @@ function startM2() {
   proc.stdout.on("data", (data) => {
     // Send output to webview
     // console.log("M2 stdout:", data.toString());
-    g_panel.webview.postMessage({
-      type: "output",
-      data: data.toString(),
-    });
+    if (g_panel)
+      g_panel.webview.postMessage({
+        type: "output",
+        data: data.toString(),
+      });
   });
 
   /*
@@ -164,7 +165,7 @@ function handleWebviewMessage(message: any) {
       break;
     case "interrupt":
       console.log("interrupt");
-      proc.kill('SIGINT');
+      if (proc) proc.kill("SIGINT");
       break;
     case "focus":
       const editor = vscode.window.activeTextEditor;

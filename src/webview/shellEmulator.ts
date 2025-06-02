@@ -57,7 +57,7 @@ Array.prototype.sortedPush = function (el: any) {
 
 const Shell = function (
   terminal: HTMLElement,
-  emitInput: (type: string, msg?: string) => void,
+  emit: (type: string, msg?: string) => void, // should be renamed
   editor: HTMLElement,
   iFrame: HTMLFrameElement,
   createInputSpan: boolean,
@@ -192,7 +192,7 @@ const Shell = function (
     procInputSpan.textContent += clean + returnSymbol + "\n";
     inputSpan.textContent = "";
     scrollDownLeft(terminal);
-    emitInput("input", clean + "\n");
+    emit("input", clean + "\n");
   };
 
   const focusElement = function () {
@@ -257,17 +257,16 @@ const Shell = function (
         e.stopPropagation();
         obj.codeInputAction(t);
         return;
-      } else if (t.tagName == "A") {
+      } else if (t instanceof HTMLAnchorElement) {
         const href = t.getAttribute("href");
         const [name, rowcols] = parseLocation(href);
-        if (rowcols) {
-          if (name == "stdio") {
+        if (rowcols && name == "stdio") {
             obj.selectPastInput(document.activeElement, rowcols);
             e.preventDefault();
-          }
-        }
+          } else if ((!t.host || t.host == window.location.host))
+	    emit("open", href);  // calls to local files are redirected to editor
         return;
-      }
+        }
       if (t.classList.contains("M2CellBar")) return;
       t = t.parentElement;
     }
@@ -659,7 +658,7 @@ const Shell = function (
 
   obj.reset = function () {
     console.log("Reset");
-    emitInput("reset");
+    emit("reset");
     createInputEl(); // recreate the input area
     interpreterDepth = 1;
   };
@@ -668,7 +667,7 @@ const Shell = function (
 
   obj.interrupt = function () {
     inputSpan.textContent = "";
-    emitInput("interrupt");
+    emit("interrupt");
     setCaretAtEndMaybe(inputSpan);
   };
   const interruptBtn = document.getElementById("interruptBtn");

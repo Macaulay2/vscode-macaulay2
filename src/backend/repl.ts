@@ -7,6 +7,7 @@ import { spawn, ChildProcess } from "child_process";
 let g_context: vscode.ExtensionContext | undefined;
 let g_panel: vscode.WebviewPanel | undefined;
 let proc: ChildProcess | undefined;
+let procWorkingDir: string | undefined;
 
 function startM2() {
   let exepath = vscode.workspace
@@ -18,9 +19,11 @@ function startM2() {
     );
     return;
   }
-  //  proc = spawn(exepath, ["--webapp"], { shell: false }); // this would fix SIGINT but break stderr/stdout interleaving
-  proc = spawn(exepath, ["--webapp", "2>&1"], { shell: true });
+  // proc = spawn(exepath, ["--webapp"]); // this fixes SIGINT but breaks stderr/stdout interleaving
+  proc = spawn(exepath, ["--webapp", "2>&1"], { shell: true }); // for now, use this instead -- breaks SIGINT but error messages displayed correctly
   console.log("M2 process started");
+
+  procWorkingDir = process.cwd();
 
   proc.stdout.on("data", (data) => {
     // Send output to webview
@@ -32,15 +35,14 @@ function startM2() {
       });
   });
 
-  /*
-  proc.stderr.on('data', (data) => { // no longer needed because of 2>&1
-        console.log('M2 stderr:', data.toString());
+  proc.stderr.on('data', (data) => { // not needed with 2>&1
+    console.log('M2 stderr:', data.toString());
+    if (g_panel)
         g_panel.webview.postMessage({
             type: 'output',
             data: data.toString()
         });
     });
-   */
 
   /*
   proc.on("close", (code) => { // not needed at the moment
@@ -153,6 +155,27 @@ function getWebviewContent(webview: vscode.Webview) {
   return html;
 }
 
+function parseVSCodeFragment(pathWithFragment: string): {
+  path: string,
+  start?: { line: number, column: number },
+  end?: { line: number, column: number }
+} {
+  const re = /^(.*?)(?:#\D*(\d+)(?::\D*(\d+))?(?:-\D*(\d+)(?::\D*(\d+))?)?)?$/;
+  const m = pathWithFragment.match(re);
+  if (!m) return { path: pathWithFragment };
+
+  const [ , path, line1, col1, line2, col2 ] = m;
+  let result: {
+    path: string,
+    start?: { line: number, column: number },
+    end?: { line: number, column: number }
+  } = { path };
+
+  if (line1) result.start = { line: parseInt(line1) - 1, column: col1 ? parseInt(col1) : 0 }; // TODO check shifts by 1
+  if (line2) result.end   = { line: parseInt(line2) - 1, column: col2 ? parseInt(col2) : 0 };
+  return result;
+}
+
 function handleWebviewMessage(message: any) {
   switch (message.type) {
     case "input":
@@ -166,6 +189,20 @@ function handleWebviewMessage(message: any) {
     case "interrupt":
       console.log("interrupt");
       if (proc) proc.kill("SIGINT");
+      break;
+    case "open":
+      console.log("open "+message.data);
+      // fix relative path: relative to where M2 was started
+      const { path: relPath, start, end } = parseVSCodeFragment(message.data);
+      let selection;
+      if (start && end) {
+	selection = new vscode.Range(start.line, start.column, end.line, end.column);
+      } else if (start) {
+	selection = new vscode.Range(start.line, start.column, start.line, start.column);
+      }
+      const absPath = path.resolve(procWorkingDir!, relPath);
+      const fileUri = vscode.Uri.file(absPath);
+      vscode.window.showTextDocument(fileUri, { preview: false, selection, viewColumn: vscode.ViewColumn.One });
       break;
     case "focus":
       const editor = vscode.window.activeTextEditor;

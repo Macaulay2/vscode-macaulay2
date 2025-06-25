@@ -16,6 +16,21 @@
 * Set breakpoints in your code inside `src/extension.ts` to debug your extension.
 * Find output from your extension in the debug console.
 
+## To run a version of the package at all times without using F5
+
+Step 1: Create a package file:
+* Install vsce (VS Code Extension Manager) via `npm install -g @vscode/vsce`
+* Package your extension via `vsce package` (run this in the extension base directory)
+
+This will create a file like `macaulay2-0.0.5.vsix`. This is the name of the package along with the version number.
+
+Step 2: Install the package file:
+you can install via `code --install-extension macaulay2-0.0.5.vsix` (again, this is in the extension base directory)
+
+This should now be listed in your packages. Run `code --list-extensions` to see it. It will be named `m2.macaulay2` (as opposed to coreysharris.macaulay2). The publishers name comes first.
+
+Now, all new sessions will come with your test package loaded. Making a new package and installing it will replace your current one with the new version. You might want to uninstall corey's package if you have some unexpected problems.
+
 ## Make changes
 
 * You can relaunch the extension from the debug toolbar after changing code in `src/extension.ts`.

@@ -2,12 +2,12 @@
 	"name": "macaulay2",
 	"displayName": "Macaulay2",
 	"description": "Macaulay2 language support",
-	"version": "0.0.4",
+	"version": "0.0.5",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/coreysharris/vscode-macaulay2"
+		"url": "https://github.com/Macaulay2/vscode-macaulay2"
 	},
-	"publisher": "coreysharris",
+	"publisher": "M2",
 	"engines": {
 		"vscode": "^1.100.0"
 	},

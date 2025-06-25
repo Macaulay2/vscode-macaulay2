@@ -650,10 +650,69 @@ const Shell = function (
   };
 
   const displayText = function (msg) {
-    const node = document.createTextNode(msg);
-    if (inputSpan && inputSpan.parentElement == htmlSec)
-      htmlSec.insertBefore(node, inputSpan);
-    else htmlSec.appendChild(node);
+    // Check if the message contains file paths with line numbers (Macaulay2 error format)
+    // Common patterns: "filename.m2:123:" or "filename.m2:123:456:" 
+    const errorPattern = /([^\s:]+\.m2):(\d+)(?::(\d+))?:/g;
+    
+    if (errorPattern.test(msg)) {
+      // Reset regex lastIndex for next use
+      errorPattern.lastIndex = 0;
+      
+      let lastIndex = 0;
+      let match;
+      
+      while ((match = errorPattern.exec(msg)) !== null) {
+        // Add text before the match
+        if (match.index > lastIndex) {
+          const textBefore = msg.substring(lastIndex, match.index);
+          const textNode = document.createTextNode(textBefore);
+          if (inputSpan && inputSpan.parentElement == htmlSec)
+            htmlSec.insertBefore(textNode, inputSpan);
+          else htmlSec.appendChild(textNode);
+        }
+        
+        // Create clickable link for the file path
+        const [fullMatch, filePath, lineNum, colNum] = match;
+        const link = document.createElement('a');
+        link.textContent = fullMatch;
+        link.href = '#';
+        link.style.color = '#4FC3F7';
+        link.style.textDecoration = 'underline';
+        link.style.cursor = 'pointer';
+        
+        // Build the VS Code fragment (file#line:column format)
+        let fragment = filePath + '#' + lineNum;
+        if (colNum) {
+          fragment += ':' + colNum;
+        }
+        
+        link.onclick = (e) => {
+          e.preventDefault();
+          emit('open', fragment);
+        };
+        
+        if (inputSpan && inputSpan.parentElement == htmlSec)
+          htmlSec.insertBefore(link, inputSpan);
+        else htmlSec.appendChild(link);
+        
+        lastIndex = match.index + fullMatch.length;
+      }
+      
+      // Add remaining text after the last match
+      if (lastIndex < msg.length) {
+        const textAfter = msg.substring(lastIndex);
+        const textNode = document.createTextNode(textAfter);
+        if (inputSpan && inputSpan.parentElement == htmlSec)
+          htmlSec.insertBefore(textNode, inputSpan);
+        else htmlSec.appendChild(textNode);
+      }
+    } else {
+      // No error patterns found, display text normally
+      const node = document.createTextNode(msg);
+      if (inputSpan && inputSpan.parentElement == htmlSec)
+        htmlSec.insertBefore(node, inputSpan);
+      else htmlSec.appendChild(node);
+    }
   };
 
   obj.reset = function () {

@@ -19,11 +19,30 @@ function startM2() {
     );
     return;
   }
+
+  // Determine the working directory for Macaulay2
+  let workingDir: string;
+  const activeEditor = vscode.window.activeTextEditor;
+  
+  if (activeEditor && activeEditor.document.uri.scheme === 'file') {
+    // Use the directory of the currently active file
+    workingDir = path.dirname(activeEditor.document.uri.fsPath);
+    console.log(`Starting M2 in current file directory: ${workingDir}`);
+  } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+    // Use the first workspace folder
+    workingDir = vscode.workspace.workspaceFolders[0].uri.fsPath;
+    console.log(`Starting M2 in workspace root: ${workingDir}`);
+  } else {
+    // Fallback to process.cwd()
+    workingDir = process.cwd();
+    console.log(`Starting M2 in process working directory: ${workingDir}`);
+  }
+
   // proc = spawn(exepath, ["--webapp"]); // this fixes SIGINT but breaks stderr/stdout interleaving
-  proc = spawn(exepath, ["--webapp", "2>&1"], { shell: true }); // for now, use this instead -- breaks SIGINT but error messages displayed correctly
+  proc = spawn(exepath, ["--webapp", "2>&1"], { shell: true, cwd: workingDir }); // for now, use this instead -- breaks SIGINT but error messages displayed correctly
   console.log("M2 process started");
 
-  procWorkingDir = process.cwd();
+  procWorkingDir = workingDir;
 
   proc.stdout.on("data", (data) => {
     // Send output to webview

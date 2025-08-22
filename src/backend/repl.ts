@@ -203,6 +203,7 @@ function handleWebviewMessage(message: any) {
     case "reset":
       console.log("reset");
       if (proc) proc.kill();
+      procWorkingDir = undefined; // Reset working directory
       startM2();
       break;
     case "interrupt":

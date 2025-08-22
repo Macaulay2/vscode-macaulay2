@@ -247,7 +247,8 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
-  if (g_panel) {
-    g_panel.dispose();
+  if (proc) {
+    proc.kill();
+    proc = undefined;
   }
 }

@@ -270,7 +270,10 @@ const Shell = function (
       if (t.classList.contains("M2CellBar")) return;
       t = t.parentElement;
     }
-    if (document.activeElement != inputSpan) {
+    if (
+      window.getSelection().toString().length == 0 &&
+      document.activeElement != inputSpan
+    ) {
       inputSpan.focus({ preventScroll: true });
       setCaret(inputSpan, inputSpan.textContent.length);
     }

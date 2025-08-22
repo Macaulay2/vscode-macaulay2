@@ -85,7 +85,7 @@ async function startREPL(preserveFocus: boolean) {
       g_panel = vscode.window.createWebviewPanel(
         "macaulay2Output",
         "Macaulay2 Output",
-        { viewColumn: vscode.ViewColumn.Two, preserveFocus: preserveFocus },
+        { viewColumn: vscode.ViewColumn.Beside, preserveFocus: preserveFocus },
         {
           enableScripts: true,
           retainContextWhenHidden: true,

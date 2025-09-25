@@ -38,30 +38,40 @@ function startM2() {
     console.log(`Starting M2 in process working directory: ${workingDir}`);
   }
 
-  // proc = spawn(exepath, ["--webapp"]); // this fixes SIGINT but breaks stderr/stdout interleaving
-  proc = spawn(exepath, ["--webapp", "2>&1"], { shell: true, cwd: workingDir }); // for now, use this instead -- breaks SIGINT but error messages displayed correctly
-  console.log("M2 process started");
+  // Spawn M2 directly (no shell) so signals like SIGINT reach the M2 process.
+  // Previously we used a shell with `2>&1` which merged stderr/stdout but prevented
+  // SIGINT from interrupting the actual M2 process. Listening to both stdout and
+  // stderr separately preserves output while allowing interrupts to work.
+  proc = spawn(exepath, ["--webapp"], { cwd: workingDir });
+  console.log("M2 process started (pid=", proc.pid, ")");
 
   procWorkingDir = workingDir;
 
   proc.stdout.on("data", (data) => {
-    // Send output to webview
-    // console.log("M2 stdout:", data.toString());
     if (g_panel)
-      g_panel.webview.postMessage({
-        type: "output",
-        data: data.toString(),
-      });
+      g_panel.webview.postMessage({ type: "output", data: data.toString() });
   });
 
-  proc.stderr.on('data', (data) => { // not needed with 2>&1
-    console.log('M2 stderr:', data.toString());
+  proc.stderr.on("data", (data) => {
+    // forward stderr as output too
+    console.log("M2 stderr:", data.toString());
     if (g_panel)
-        g_panel.webview.postMessage({
-            type: 'output',
-            data: data.toString()
-        });
-    });
+      g_panel.webview.postMessage({ type: "output", data: data.toString() });
+  });
+
+  proc.on("error", (err) => {
+    console.error("M2 process error:", err);
+    if (g_panel)
+      g_panel.webview.postMessage({ type: "output", data: `Error starting Macaulay2: ${err.message}` });
+    proc = undefined;
+  });
+
+  proc.on("close", (code, signal) => {
+    console.log("M2 process closed. code=", code, "signal=", signal);
+    if (g_panel)
+      g_panel.webview.postMessage({ type: "exit", code, signal });
+    proc = undefined;
+  });
 
   /*
   proc.on("close", (code) => { // not needed at the moment
@@ -208,7 +218,25 @@ function handleWebviewMessage(message: any) {
       break;
     case "interrupt":
       console.log("interrupt");
-      if (proc) proc.kill("SIGINT");
+      if (proc) {
+        try {
+          // Best-effort: send SIGINT to the child process so it can interrupt computations.
+          proc.kill("SIGINT");
+        } catch (e) {
+          console.error("Failed to send SIGINT to M2 process:", e);
+          // On Windows, proc.kill('SIGINT') may not work. Attempt taskkill as a fallback.
+          if (process.platform === "win32" && proc.pid) {
+            try {
+              const killer = spawn("taskkill", ["/PID", String(proc.pid), "/T", "/F"]);
+              killer.on("close", () => {
+                console.log("taskkill executed for pid", proc!.pid);
+              });
+            } catch (ee) {
+              console.error("taskkill fallback failed:", ee);
+            }
+          }
+        }
+      }
       break;
     case "open":
       console.log("open "+message.data);

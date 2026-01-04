@@ -34,6 +34,16 @@
 				"language": "macaulay2",
 				"scopeName": "source.macaulay2",
 				"path": "./syntaxes/macaulay2.tmLanguage.json"
+			},
+			{
+				"scopeName": "markdown.macaulay2.codeblock",
+				"path": "./syntaxes/codeblock.json",
+				"injectTo": [
+					"text.html.markdown"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.macaulay2": "macaulay2"
+				}
 			}
 		],
 		"languages": [

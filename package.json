@@ -97,7 +97,8 @@
 					"endsPattern": ".*"
 				}
 			}
-		]
+		],
+		"markdown.markdownItPlugins": true
 	},
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
@@ -121,5 +122,9 @@
 		"tslint": "^5.12.1",
 	        "typescript": "^5.4.0",
 	    	"prettier": "^3.5.3"
+	},
+	"dependencies": {
+		"highlight.js": "^11.11.1",
+		"highlightjs-macaulay2": "^0.4.2"
 	}
 }

@@ -63,7 +63,8 @@
 		"keybindings": [
 			{
 				"command": "macaulay2.sendToREPL",
-				"key": "shift+Enter"
+				"key": "shift+Enter",
+				"when": "editorLangId == macaulay2"
 			},
 			{
 				"command": "macaulay2.startREPL",

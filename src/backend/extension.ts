@@ -2,9 +2,12 @@
 // Import the module and reference it with the alias vscode in your code below
 "use strict";
 
+import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
 import * as repl from "./repl";
 import * as formatter from "./formatter";
+import client from "./client";
 import hljs from "highlight.js/lib/core";
 import hljsM2 from "highlightjs-macaulay2";
 
@@ -14,6 +17,17 @@ type CompletionProviderModule = typeof import("./completionProviders");
 
 function isMacaulay2Document(document: vscode.TextDocument): boolean {
   return document.languageId === "macaulay2";
+}
+
+function isLanguageServerAvailable(): boolean {
+  return (process.env.PATH ?? "").split(path.delimiter).some((dir) => {
+    try {
+      fs.accessSync(path.join(dir, "M2-language-server"), fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 // this method is called when your extension is activated
@@ -87,6 +101,36 @@ export function activate(context: vscode.ExtensionContext) {
 
   repl.activate(context, getWebviewCompletionItems);
   formatter.activate(context);
+  const config = vscode.workspace.getConfiguration("macaulay2");
+  if (config.get<boolean>("enableLanguageServer", true) && isLanguageServerAvailable()) {
+    context.subscriptions.push(client);
+    context.subscriptions.push(
+      vscode.commands.registerCommand("macaulay2.restartLanguageServer", () =>
+        client.restart()
+      )
+    );
+    client.start().catch((error) => {
+      void vscode.window.showErrorMessage(
+        `Failed to start Macaulay2 Language Server: ${error instanceof Error ? error.message : String(error)}`
+      );
+    });
+  }
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("macaulay2.enableLanguageServer")) {
+        void vscode.window
+          .showInformationMessage(
+            "Reload the window to apply language server changes.",
+            "Reload"
+          )
+          .then((selection) => {
+            if (selection === "Reload")
+              vscode.commands.executeCommand("workbench.action.reloadWindow");
+          });
+      }
+    })
+  );
 
   return {
     // markdown-it plugin to highlight m2 code in markdown previews
@@ -108,6 +152,7 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 // this method is called when your extension is deactivated
-export function deactivate() {
+export function deactivate(): Thenable<void> | undefined {
   repl.deactivate();
+  return client.stop();
 }

@@ -52,6 +52,11 @@
 			{
 				"command": "macaulay2.selectExecutablePath",
 				"title": "Select M2 Executable"
+			},
+			{
+				"command": "macaulay2.restartLanguageServer",
+				"title": "Restart Language Server",
+				"category": "Macaulay2"
 			}
 		],
 		"grammars": [
@@ -89,6 +94,12 @@
 		"configuration": {
 			"title": "Macaulay2",
 			"properties": {
+				"macaulay2.enableLanguageServer": {
+					"type": "boolean",
+					"default": true,
+					"description": "Enable the Macaulay2 Language Server for enhanced language support (hover, signature help, etc.). Requires M2-language-server to be installed.",
+					"scope": "window"
+				},
 				"macaulay2.executablePath": {
 					"type": "string",
 					"default": "",
@@ -296,6 +307,7 @@
 		"prettier": "^3.5.3",
 		"rimraf": "^6.0.1",
 		"tslint": "^5.12.1",
-		"typescript": "^5.4.0"
+		"typescript": "^5.4.0",
+		"vscode-languageclient": "^9.0.1"
 	}
 }

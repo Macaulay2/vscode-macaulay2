@@ -448,6 +448,7 @@ suite("Language Server Controller", function () {
       reportDisabled: () => reported.push("disabled"),
       reportNotFound: () => reported.push("notFound"),
       reportStartError: () => reported.push("startError"),
+      reportStopError: () => reported.push("stopError"),
       ...overrides,
     });
 
@@ -646,6 +647,31 @@ suite("Language Server Controller", function () {
     await harness.controller.start();
     await harness.controller.stop();
 
+    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
+  });
+
+  test("stop then start builds a fresh client", async function () {
+    // Turning the setting off and back on goes through stop() and start()
+    // rather than a window reload, so the second start has to work.
+    const harness = createHarness([found, found]);
+
+    await harness.controller.start();
+    await harness.controller.stop();
+    await harness.controller.start();
+
+    assert.equal(harness.clients.length, 2);
+    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
+    assert.deepEqual(harness.clients[1].calls, ["start"]);
+  });
+
+  test("stop queues behind an in-flight start", async function () {
+    const harness = createHarness([found]);
+
+    const starting = harness.controller.start();
+    const stopping = harness.controller.stop();
+    await Promise.all([starting, stopping]);
+
+    assert.equal(harness.clients.length, 1);
     assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
   });
 

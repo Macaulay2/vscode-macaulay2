@@ -38,6 +38,7 @@ export interface LanguageServerControllerOptions {
   reportDisabled(): void;
   reportNotFound(): void;
   reportStartError(error: unknown): void;
+  reportStopError(error: unknown): void;
 }
 
 export interface LanguageServerController {
@@ -61,6 +62,7 @@ export function createLanguageServerController(
     reportDisabled,
     reportNotFound,
     reportStartError,
+    reportStopError,
   } = options;
 
   // Undefined until a resolution succeeds and a client is built for it.
@@ -77,13 +79,16 @@ export function createLanguageServerController(
   // operation is ever in flight and callers can await whatever is running.
   // Errors are reported once and never propagate: every caller discards the
   // result, and an unhandled rejection out of an editor event is not useful.
-  const run = (work: () => Promise<void>): Promise<void> => {
+  const run = (
+    work: () => Promise<void>,
+    report: (error: unknown) => void = reportStartError,
+  ): Promise<void> => {
     const token = ++pendingToken;
     const task = (async () => {
       try {
         await work();
       } catch (error) {
-        reportStartError(error);
+        report(error);
       } finally {
         // A restart that took the slot over while this was settling must keep
         // it, or a concurrent start would see an idle controller.
@@ -169,9 +174,15 @@ export function createLanguageServerController(
     });
   };
 
-  const stop = async () => {
-    if (pending) await pending;
-    await discardClient();
+  // Goes through run() like the others, so it queues behind an in-flight start
+  // instead of tearing the client out from under it, and so a failure to shut
+  // down is reported rather than left as an unhandled rejection.
+  const stop = () => {
+    const previous = pending;
+    return run(async () => {
+      if (previous) await previous;
+      await discardClient();
+    }, reportStopError);
   };
 
   return {

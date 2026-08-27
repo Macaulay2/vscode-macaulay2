@@ -1,4 +1,9 @@
 {
+  "information_for_contributors": [
+    "Auto-generated for Macaulay2-@M2VERSION@. Do not modify this file manually.",
+    "Edit syntaxes/macaulay2.tmLanguage.json.in and run \"npm run update\".",
+    "Grammar reference: https://github.com/Macaulay2/M2/wiki/Macaulay2-language-grammar"
+  ],
   "name": "Macaulay2",
   "scopeName": "source.macaulay2",
   "fileTypes": [
@@ -15,6 +20,9 @@
       "include": "#strings"
     },
     {
+      "include": "#numbers"
+    },
+    {
       "include": "#keywords"
     },
     {
@@ -22,21 +30,14 @@
     }
   ],
   "repository": {
-    "storage": {
-      "patterns": [
-        {
-          "name": "meta.function.macaulay2",
-          "match": "(\\)"
-        }
-      ]
-    },
     "keywords": {
       "patterns": [
         {
-          "name": "keyword.other.macaulay2",
-          "match": "(x?)\\b(@M2KEYWORDS@)\\b"
+          "name": "keyword.control.macaulay2",
+          "match": "\\b(@M2KEYWORDS@)\\b"
         },
         {
+          "comment": "Kept ahead of the generated tables so the two arrows keep their long-standing distinct scopes.",
           "name": "keyword.operator.functionArrow.macaulay2",
           "match": "->"
         },
@@ -45,8 +46,14 @@
           "match": "=>"
         },
         {
-          "name": "keyword.operator.arithmetic.macaulay2",
-          "match": "%|\\*|/|//|-|\\+|\\\\"
+          "comment": "Assignment operators, from getParsing. Sorted longest first: alternation is leftmost-first, not longest-match, so a shorter branch would shadow a longer one.",
+          "name": "keyword.operator.assignment.macaulay2",
+          "match": "@M2ASSIGNOPS@"
+        },
+        {
+          "comment": "Every other symbolic operator Macaulay2 defines. Delimiters are excluded by the generator.",
+          "name": "keyword.operator.macaulay2",
+          "match": "@M2OPERATORS@"
         }
       ]
     },
@@ -66,16 +73,21 @@
       ]
     },
     "documentation": {
+      "comment": "A /// block means three different things depending on what introduces it, and treating them alike is why raw strings used to bleed Macaulay2 scopes. Detection has to happen on the same line as the ///, because a TextMate grammar sees one line at a time and cannot look ahead.",
       "patterns": [
         {
-          "name": "meta.documentation.tripleslash.macaulay2",
-          "begin": "///",
+          "comment": "doc /// ... /// is the SimpleDoc docstring language.",
+          "name": "meta.documentation.simpledoc.macaulay2",
+          "begin": "\\b(doc|multidoc|document)[ \\t]*(///)",
           "beginCaptures": {
-            "0": {
+            "1": {
+              "name": "support.function.macaulay2"
+            },
+            "2": {
               "name": "punctuation.definition.documentation.begin.macaulay2"
             }
           },
-          "end": "///",
+          "end": "(?<!/)///(?!/)",
           "endCaptures": {
             "0": {
               "name": "punctuation.definition.documentation.end.macaulay2"
@@ -83,18 +95,86 @@
           },
           "patterns": [
             {
-              "include": "#comments"
+              "include": "#slash-escape"
             },
             {
-              "include": "#strings"
-            },
-            {
-              "include": "#keywords"
-            },
-            {
-              "include": "#support"
+              "include": "text.macaulay2.simpledoc"
             }
           ]
+        },
+        {
+          "comment": "TEST /// ... /// holds ordinary Macaulay2 code, so highlight it as such.",
+          "name": "meta.test.macaulay2",
+          "begin": "\\b(TEST)[ \\t]*(///)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.macaulay2"
+            },
+            "2": {
+              "name": "punctuation.definition.string.begin.macaulay2"
+            }
+          },
+          "end": "(?<!/)///(?!/)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.macaulay2"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#slash-escape"
+            },
+            {
+              "include": "$self"
+            }
+          ]
+        },
+        {
+          "comment": "Anything else is a raw string literal. It gets no inner patterns at all: a -- in here is text, not a comment.",
+          "name": "string.quoted.other.tripleslash.macaulay2",
+          "begin": "///",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.macaulay2"
+            }
+          },
+          "end": "(?<!/)///(?!/)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.macaulay2"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#slash-escape"
+            }
+          ]
+        }
+      ]
+    },
+    "slash-escape": {
+      "comment": "Inside a /// string a literal slash is written //// -- so a run of four is an escape rather than a terminator. Runs of five or more are not handled.",
+      "name": "constant.character.escape.macaulay2",
+      "match": "(?<!/)////(?!/)"
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.integer.macaulay2",
+          "match": "(?<![A-Za-z0-9'$])0[xX][0-9a-fA-F]+"
+        },
+        {
+          "name": "constant.numeric.integer.macaulay2",
+          "match": "(?<![A-Za-z0-9'$])0[oO][0-7]+"
+        },
+        {
+          "name": "constant.numeric.integer.macaulay2",
+          "match": "(?<![A-Za-z0-9'$])0[bB][01]+"
+        },
+        {
+          "comment": "The (?!\\.) is load-bearing: without it 1..5 lexes as the float 1. followed by .5, swallowing the range operator, because the scanner takes the leftmost match.",
+          "name": "constant.numeric.macaulay2",
+          "match": "(?<![A-Za-z0-9'$])(?:[0-9]+(?:\\.(?!\\.)[0-9]*)?|\\.[0-9]+)(?:p[0-9]+)?(?:[eE][+-]?[0-9]+)?"
         }
       ]
     },
@@ -121,15 +201,15 @@
       "patterns": [
         {
           "name": "entity.name.type.macaulay2",
-          "match": "(x?)\\b(@M2DATATYPES@)\\b"
+          "match": "\\b(@M2DATATYPES@)\\b"
         },
         {
           "name": "support.function.macaulay2",
-          "match": "(x?)\\b(@M2FUNCTIONS@)\\b"
+          "match": "\\b(@M2FUNCTIONS@)\\b"
         },
         {
           "name": "constant.language.macaulay2",
-          "match": "(x?)\\b(@M2CONSTANTS@)\\b"
+          "match": "\\b(@M2CONSTANTS@)\\b"
         }
       ]
     }

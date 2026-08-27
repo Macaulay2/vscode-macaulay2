@@ -1,7 +1,4 @@
 {
-    // "capabilities": {
-    //     "completionProvider": { }
-    // },
     "comments": {
         // symbol used for single line comment. Remove this entry if your language does not support line comments
         "lineComment": "--",
@@ -12,20 +9,39 @@
     "brackets": [
         ["{", "}"],
         ["[", "]"],
-        ["(", ")"]
+        ["(", ")"],
+        ["<|", "|>"]
     ],
     // symbols that are auto closed when typing
     "autoClosingPairs": [
         ["{", "}"],
         ["[", "]"],
         ["(", ")"],
-        ["\"", "\""]
+        { "open": "<|", "close": "|>" },
+        { "open": "-*", "close": "*-", "notIn": [ "string", "comment" ] },
+        { "open": "\"", "close": "\"", "notIn": [ "string", "comment" ] }
     ],
     // symbols that that can be used to surround a selection
     "surroundingPairs": [
         ["{", "}"],
         ["[", "]"],
         ["(", ")"],
+        ["<|", "|>"],
         ["\"", "\""]
-    ]
+    ],
+    // Keep selection aligned with the lexer: identifiers support Unicode
+    // letters, apostrophes, and dollar signs, while numeric literals include
+    // fractional, precision, and exponent fields. "_" is deliberately absent:
+    // it is a binary operator, so foo_bar is three tokens. The dot guards keep
+    // the range in 1..5 out of either neighboring numeric token.
+    "wordPattern": {
+        "pattern": "(?:0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+|(?:[0-9]+(?:\\.(?!\\.)[0-9]*)?|(?<!\\.)\\.[0-9]+)(?:p[0-9]+)?(?:[eE][+-]?[0-9]+)?|\\p{Alphabetic}(?:\\p{Alphabetic}|[0-9'$])*)",
+        "flags": "ug"
+    },
+    "folding": {
+        "markers": {
+            "start": "^\\s*--\\s*#?region\\b",
+            "end": "^\\s*--\\s*#?endregion\\b"
+        }
+    }
 }

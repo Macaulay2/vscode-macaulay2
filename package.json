@@ -288,7 +288,7 @@
 		"@types/vscode": "^1.100.0",
 		"@vscode/test-cli": "^0.0.10",
 		"@vscode/test-electron": "^2.5.2",
-		"esbuild": "^0.28.0",
+		"esbuild": "^0.28.1",
 		"highlight.js": "^11.11.1",
 		"highlightjs-macaulay2": "^0.4.2",
 		"katex": "^0.16.47",

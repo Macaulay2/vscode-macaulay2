@@ -9,6 +9,12 @@
 // stops the editor events from asking again, and that the user command is the
 // way back from either.
 //
+// The client is created here rather than handed in, and only once a resolution
+// has actually succeeded.  That keeps vscode-languageclient out of activation
+// for anyone without a language server installed, and it means a client is
+// only ever paired with the executable it was built from: restart discards the
+// old one instead of pointing it at a new path.
+//
 
 import {
   CachedCommandResolver,
@@ -20,13 +26,14 @@ import {
 export interface LanguageServerClient {
   start(): Thenable<void>;
   stop(): Thenable<void>;
-  restart(): Thenable<void>;
+  dispose(): Thenable<void> | void;
 }
 
 export interface LanguageServerControllerOptions {
-  client: LanguageServerClient;
+  createClient(
+    resolution: CommandExecutableResolution,
+  ): Thenable<LanguageServerClient>;
   resolver: CachedCommandResolver;
-  configure(resolution: CommandExecutableResolution): void;
   isEnabled(): boolean;
   reportDisabled(): void;
   reportNotFound(): void;
@@ -38,21 +45,26 @@ export interface LanguageServerController {
   start(): Promise<void>;
   /** The "Macaulay2: Restart Language Server" command. */
   restart(): Promise<void>;
+  /** Shut the server down, for deactivate(). */
+  stop(): Promise<void>;
+  /** For context.subscriptions. */
+  dispose(): void;
 }
 
 export function createLanguageServerController(
   options: LanguageServerControllerOptions,
 ): LanguageServerController {
   const {
-    client,
+    createClient,
     resolver,
-    configure,
     isEnabled,
     reportDisabled,
     reportNotFound,
     reportStartError,
   } = options;
 
+  // Undefined until a resolution succeeds and a client is built for it.
+  let client: LanguageServerClient | undefined;
   let started = false;
   // Set once a probe has conclusively come back empty, so the editor events
   // stop asking.  Only restart() clears it, which is how a language server
@@ -83,18 +95,30 @@ export function createLanguageServerController(
     return task;
   };
 
-  // Returns whether the language server is ready to be launched, and records a
-  // conclusive "not installed" so the editor events stop asking.  A probe that
-  // merely timed out is not conclusive: the next attempt should look again.
-  const configureResolved = () => {
+  // Resolves the executable and builds a client for it, recording a conclusive
+  // "not installed" so the editor events stop asking.  A probe that merely
+  // timed out is not conclusive: the next attempt should look again.
+  const resolveClient = async () => {
     const probe = resolver.resolve();
     if (!probe.resolution) {
       missing = !probe.timedOut;
-      return false;
+      return undefined;
     }
 
-    configure(probe.resolution);
-    return true;
+    return await createClient(probe.resolution);
+  };
+
+  // Tear down whatever is running, leaving the controller as if it had never
+  // started.  Used before building a client for a new resolution, and by
+  // stop() on deactivate.
+  const discardClient = async () => {
+    const running = client;
+    client = undefined;
+    started = false;
+    if (!running) return;
+
+    await running.stop();
+    await running.dispose();
   };
 
   const start = () => {
@@ -102,9 +126,11 @@ export function createLanguageServerController(
     if (pending) return pending;
 
     return run(async () => {
-      if (!configureResolved()) return;
+      const resolved = await resolveClient();
+      if (!resolved) return;
 
-      await client.start();
+      client = resolved;
+      await resolved.start();
       started = true;
     });
   };
@@ -126,33 +152,34 @@ export function createLanguageServerController(
       resolver.forget();
       missing = false;
 
-      if (!configureResolved()) {
-        // The executable has gone since it was last resolved.  Leaving the old
-        // client running while telling the user it was not found would be a
-        // lie, and start() would then short-circuit on `started` forever.
-        if (started) {
-          await client.stop();
-          started = false;
-        }
+      // Drop the old client before resolving.  Its executable path is baked
+      // in, so it cannot be reused if the resolution has moved, and leaving it
+      // running while reporting "not found" would be a lie.
+      await discardClient();
+
+      const resolved = await resolveClient();
+      if (!resolved) {
         reportNotFound();
         return;
       }
 
-      try {
-        if (started) {
-          await client.restart();
-        } else {
-          await client.start();
-          started = true;
-        }
-      } catch (error) {
-        // A failed restart leaves the client in no state to be reused, so let
-        // a later start() try again from scratch rather than assuming it runs.
-        started = false;
-        throw error;
-      }
+      client = resolved;
+      await resolved.start();
+      started = true;
     });
   };
 
-  return { start, restart };
+  const stop = async () => {
+    if (pending) await pending;
+    await discardClient();
+  };
+
+  return {
+    start,
+    restart,
+    stop,
+    dispose() {
+      void stop();
+    },
+  };
 }

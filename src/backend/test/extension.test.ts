@@ -18,6 +18,7 @@ import {
 } from "../executableSwitcher";
 import {
   CachedCommandResolver,
+  CommandExecutableResolution,
   CommandProbe,
   createCachedCommandResolver,
   getM2ExecutableResolutionDetail,
@@ -375,43 +376,43 @@ suite("Executable Switcher", function () {
 });
 
 suite("Language Server Controller", function () {
+  // One entry per client the controller builds, so a test can tell "restarted
+  // the same client" from "built a second one".
   interface FakeClient {
     start(): Thenable<void>;
     stop(): Thenable<void>;
-    restart(): Thenable<void>;
+    dispose(): void;
+    executablePath: string;
     calls: string[];
-    failStart?: unknown;
-    failRestart?: unknown;
-  }
-
-  function createFakeClient(): FakeClient {
-    const client: FakeClient = {
-      calls: [],
-      start() {
-        client.calls.push("start");
-        return client.failStart
-          ? Promise.reject(client.failStart)
-          : Promise.resolve();
-      },
-      stop() {
-        client.calls.push("stop");
-        return Promise.resolve();
-      },
-      restart() {
-        client.calls.push("restart");
-        return client.failRestart
-          ? Promise.reject(client.failRestart)
-          : Promise.resolve();
-      },
-    };
-    return client;
   }
 
   function createHarness(
     probes: CommandProbe[],
     overrides: Partial<LanguageServerControllerOptions> = {},
   ) {
-    const client = createFakeClient();
+    const clients: FakeClient[] = [];
+    let failStart: unknown;
+
+    const createClient = (resolution: CommandExecutableResolution) => {
+      const client: FakeClient = {
+        executablePath: resolution.executablePath,
+        calls: [],
+        start() {
+          client.calls.push("start");
+          return failStart ? Promise.reject(failStart) : Promise.resolve();
+        },
+        stop() {
+          client.calls.push("stop");
+          return Promise.resolve();
+        },
+        dispose() {
+          client.calls.push("dispose");
+        },
+      };
+      clients.push(client);
+      return Promise.resolve(client);
+    };
+
     let probeCount = 0;
     // Runs out of scripted answers rather than repeating the last one, so a
     // controller that probes more often than expected fails loudly.
@@ -427,9 +428,8 @@ suite("Language Server Controller", function () {
 
     const reported: string[] = [];
     const controller = createLanguageServerController({
-      client,
+      createClient,
       resolver,
-      configure: () => {},
       isEnabled: () => true,
       reportDisabled: () => reported.push("disabled"),
       reportNotFound: () => reported.push("notFound"),
@@ -438,11 +438,19 @@ suite("Language Server Controller", function () {
     });
 
     return {
-      client,
+      clients,
       controller,
       reported,
+      failWith(error: unknown) {
+        failStart = error;
+      },
       get probeCount() {
         return probeCount;
+      },
+      // Flattened call log across every client built, which is what most of
+      // these tests actually care about.
+      get calls() {
+        return clients.flatMap((client) => client.calls);
       },
     };
   }
@@ -450,6 +458,13 @@ suite("Language Server Controller", function () {
   const found: CommandProbe = {
     resolution: {
       executablePath: "/usr/bin/M2-language-server",
+      source: "PATH",
+    },
+    timedOut: false,
+  };
+  const moved: CommandProbe = {
+    resolution: {
+      executablePath: "/opt/bin/M2-language-server",
       source: "PATH",
     },
     timedOut: false,
@@ -468,26 +483,37 @@ suite("Language Server Controller", function () {
     await harness.controller.start();
 
     assert.equal(harness.probeCount, 1);
-    assert.deepEqual(harness.client.calls, []);
+    assert.deepEqual(harness.clients, []);
   });
 
-  test("probes once when the language server starts", async function () {
+  test("builds no client when the language server is not installed", async function () {
+    // vscode-languageclient is imported by createClient, so never calling it
+    // is what keeps it out of activation for most users.
+    const harness = createHarness([notFound]);
+
+    await harness.controller.start();
+
+    assert.deepEqual(harness.clients, []);
+  });
+
+  test("builds no client while disabled", async function () {
+    const harness = createHarness([], { isEnabled: () => false });
+
+    await harness.controller.start();
+
+    assert.equal(harness.probeCount, 0);
+    assert.deepEqual(harness.clients, []);
+  });
+
+  test("probes once and builds one client when the server starts", async function () {
     const harness = createHarness([found]);
 
     await harness.controller.start();
     await harness.controller.start();
 
     assert.equal(harness.probeCount, 1);
-    assert.deepEqual(harness.client.calls, ["start"]);
-  });
-
-  test("does not probe while disabled", async function () {
-    const harness = createHarness([], { isEnabled: () => false });
-
-    await harness.controller.start();
-
-    assert.equal(harness.probeCount, 0);
-    assert.deepEqual(harness.client.calls, []);
+    assert.equal(harness.clients.length, 1);
+    assert.deepEqual(harness.calls, ["start"]);
   });
 
   test("coalesces concurrent starts into one", async function () {
@@ -500,7 +526,8 @@ suite("Language Server Controller", function () {
     ]);
 
     assert.equal(harness.probeCount, 1);
-    assert.deepEqual(harness.client.calls, ["start"]);
+    assert.equal(harness.clients.length, 1);
+    assert.deepEqual(harness.calls, ["start"]);
   });
 
   test("does not cache a probe that timed out", async function () {
@@ -509,34 +536,41 @@ suite("Language Server Controller", function () {
     const harness = createHarness([timedOut, found]);
 
     await harness.controller.start();
-    assert.deepEqual(harness.client.calls, []);
+    assert.deepEqual(harness.clients, []);
 
     await harness.controller.start();
 
     assert.equal(harness.probeCount, 2);
-    assert.deepEqual(harness.client.calls, ["start"]);
+    assert.deepEqual(harness.calls, ["start"]);
   });
 
   test("restart re-probes and starts a server installed since activation", async function () {
     const harness = createHarness([notFound, found]);
 
     await harness.controller.start();
-    assert.deepEqual(harness.client.calls, []);
+    assert.deepEqual(harness.clients, []);
 
     await harness.controller.restart();
 
     assert.equal(harness.probeCount, 2);
-    assert.deepEqual(harness.client.calls, ["start"]);
+    assert.deepEqual(harness.calls, ["start"]);
     assert.deepEqual(harness.reported, []);
   });
 
-  test("restart of a running server restarts the client", async function () {
-    const harness = createHarness([found, found]);
+  test("restart builds a new client rather than reusing the old one", async function () {
+    // The executable path is baked into a client at construction, so a restart
+    // that finds the server somewhere else has to build a fresh one.
+    const harness = createHarness([found, moved]);
 
     await harness.controller.start();
     await harness.controller.restart();
 
-    assert.deepEqual(harness.client.calls, ["start", "restart"]);
+    assert.deepEqual(
+      harness.clients.map((client) => client.executablePath),
+      ["/usr/bin/M2-language-server", "/opt/bin/M2-language-server"],
+    );
+    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
+    assert.deepEqual(harness.clients[1].calls, ["start"]);
   });
 
   test("restart reports when the language server is disabled", async function () {
@@ -556,14 +590,15 @@ suite("Language Server Controller", function () {
     await harness.controller.start();
     await harness.controller.restart();
 
-    assert.deepEqual(harness.client.calls, ["start", "stop"]);
+    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
     assert.deepEqual(harness.reported, ["notFound"]);
 
     await harness.controller.restart();
-    assert.deepEqual(harness.client.calls, ["start", "stop", "start"]);
+    assert.equal(harness.clients.length, 2);
+    assert.deepEqual(harness.clients[1].calls, ["start"]);
   });
 
-  test("a start racing a restart does not start the client twice", async function () {
+  test("a start racing a restart does not start a second client", async function () {
     const harness = createHarness([found, found]);
 
     await harness.controller.start();
@@ -572,36 +607,41 @@ suite("Language Server Controller", function () {
     const racing = harness.controller.start();
     await Promise.all([restarting, racing]);
 
-    assert.deepEqual(harness.client.calls, ["start", "restart"]);
+    assert.equal(harness.clients.length, 2);
+    assert.deepEqual(harness.clients[1].calls, ["start"]);
     assert.deepEqual(harness.reported, []);
   });
 
   test("reports a failed start once and allows a later retry", async function () {
     const harness = createHarness([found, found]);
-    harness.client.failStart = new Error("boom");
+    harness.failWith(new Error("boom"));
 
     await harness.controller.start();
     assert.deepEqual(harness.reported, ["startError"]);
 
-    harness.client.failStart = undefined;
+    harness.failWith(undefined);
     await harness.controller.restart();
 
-    assert.deepEqual(harness.client.calls, ["start", "start"]);
     assert.deepEqual(harness.reported, ["startError"]);
+    assert.deepEqual(harness.clients[1].calls, ["start"]);
   });
 
-  test("a failed restart leaves the server startable again", async function () {
-    const harness = createHarness([found, found, found]);
+  test("stop shuts the running client down", async function () {
+    const harness = createHarness([found]);
+
     await harness.controller.start();
+    await harness.controller.stop();
 
-    harness.client.failRestart = new Error("boom");
-    await harness.controller.restart();
-    assert.deepEqual(harness.reported, ["startError"]);
+    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
+  });
 
-    harness.client.failRestart = undefined;
-    await harness.controller.restart();
+  test("stop is harmless when nothing ever started", async function () {
+    const harness = createHarness([notFound]);
 
-    assert.deepEqual(harness.client.calls, ["start", "restart", "start"]);
+    await harness.controller.start();
+    await harness.controller.stop();
+
+    assert.deepEqual(harness.clients, []);
   });
 });
 

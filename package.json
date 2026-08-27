@@ -3,7 +3,7 @@
 	"displayName": "Macaulay2",
 	"description": "Macaulay2 language support",
 	"icon": "images/icon.png",
-	"version": "0.9.1",
+	"version": "1.0.0",
 	"license": "MIT",
 	"repository": {
 		"type": "git",

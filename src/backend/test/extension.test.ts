@@ -21,6 +21,7 @@ import {
   CommandExecutableResolution,
   CommandProbe,
   createCachedCommandResolver,
+  probeConfiguredCommand,
   getM2ExecutableResolutionDetail,
   getM2LaunchConfiguration,
   M2ExecutableResolution,
@@ -385,6 +386,73 @@ suite("Executable Switcher", function () {
         wslExecutablePath: "/usr/bin/M2",
       }),
       "$(terminal) M2: WSL:/usr/bin/M2",
+    );
+  });
+});
+
+suite("Configured Command Resolution", function () {
+  const autoDetected: CommandProbe = {
+    resolution: {
+      executablePath: "/usr/bin/M2-language-server",
+      source: "PATH",
+    },
+    timedOut: false,
+  };
+
+  test("a configured path wins over auto-detection", function () {
+    let probed = false;
+    const probe = probeConfiguredCommand(
+      "/opt/M2-language-server",
+      "M2-language-server",
+      () => {
+        probed = true;
+        return autoDetected;
+      },
+    );
+
+    assert.deepEqual(probe, {
+      resolution: {
+        executablePath: "/opt/M2-language-server",
+        source: "setting",
+      },
+      timedOut: false,
+    });
+    // Not just overridden afterwards: the probe must not run at all, since it
+    // is the expensive part.
+    assert.equal(probed, false);
+  });
+
+  test("an empty or whitespace setting falls back to auto-detection", function () {
+    for (const configured of [undefined, "", "   "]) {
+      assert.deepEqual(
+        probeConfiguredCommand(
+          configured,
+          "M2-language-server",
+          () => autoDetected,
+        ),
+        autoDetected,
+      );
+    }
+  });
+
+  test("a configured path is trimmed but not otherwise checked", function () {
+    // Taken as given, like macaulay2.executablePath, so a wrong path fails at
+    // startup naming itself rather than silently auto-detecting something else.
+    assert.deepEqual(
+      probeConfiguredCommand(
+        "  /nonexistent/M2-language-server  ",
+        "M2-language-server",
+        () => {
+          throw new Error("should not auto-detect");
+        },
+      ),
+      {
+        resolution: {
+          executablePath: "/nonexistent/M2-language-server",
+          source: "setting",
+        },
+        timedOut: false,
+      },
     );
   });
 });

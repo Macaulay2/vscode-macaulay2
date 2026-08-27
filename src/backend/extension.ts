@@ -5,7 +5,10 @@
 import * as vscode from "vscode";
 import * as repl from "./repl";
 import * as formatter from "./formatter";
-import { createCachedCommandResolver } from "./executablePath";
+import {
+  createCachedCommandResolver,
+  probeConfiguredCommand,
+} from "./executablePath";
 import {
   createLanguageServerController,
   LanguageServerController,
@@ -72,12 +75,24 @@ export function activate(context: vscode.ExtensionContext) {
       .getConfiguration("macaulay2")
       .get<boolean>("enableLanguageServer", true);
 
+  const getConfiguredLanguageServerPath = () =>
+    vscode.workspace
+      .getConfiguration("macaulay2")
+      .get<string>("languageServerPath", "")
+      .trim();
+
+  const languageServerResolver = createCachedCommandResolver(
+    LANGUAGE_SERVER_COMMAND,
+    (command) =>
+      probeConfiguredCommand(getConfiguredLanguageServerPath(), command),
+  );
+
   const controller = createLanguageServerController({
     // Imported lazily: this is what keeps vscode-languageclient out of
     // activation for anyone with no language server installed.
     createClient: async (resolution) =>
       (await import("./client")).createLanguageClient(resolution),
-    resolver: createCachedCommandResolver(LANGUAGE_SERVER_COMMAND),
+    resolver: languageServerResolver,
     isEnabled: isLanguageServerEnabled,
     reportDisabled: () => {
       void vscode.window.showInformationMessage(
@@ -149,6 +164,13 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
+      // A new path means the cached resolution is stale, and restart is
+      // already the operation that re-probes and swaps the client.
+      if (e.affectsConfiguration("macaulay2.languageServerPath")) {
+        void controller.restart();
+        return;
+      }
+
       if (!e.affectsConfiguration("macaulay2.enableLanguageServer")) return;
 
       // The controller can start and stop on demand, so apply the setting

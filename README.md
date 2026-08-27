@@ -25,7 +25,7 @@ Use `F12` or run **Macaulay2: Start M2 REPL** from the Command Palette to start 
 - An integrated Macaulay2 REPL in a VS Code webview.
 - Terminal-backed evaluation in a standard VS Code terminal through a separate command/keybinding.
 - Automatic `M2` executable detection on macOS and Windows, including WSL installs on Windows, with a manual override when needed.
-- Language server support via `M2-language-server` for additional editor features when installed.
+- Language server support via `M2-language-server` for additional editor features when installed, found automatically or pointed at with a setting.
 
 ![Syntax highlighting](https://user-images.githubusercontent.com/186528/54696704-990e3480-4b2c-11e9-9376-3106aa64d618.png)
 
@@ -62,6 +62,7 @@ There is no REPL target setting. To send evaluation to the terminal from a keybi
 | `macaulay2.webviewTopLevelMode` | `webapp` | Choose the webview REPL top-level output mode: `webapp` or `standard`. |
 | `macaulay2.webviewMatrixKatexMaxEntries` | `2500` | Maximum matrix entries the webview REPL renders with KaTeX. Larger matrices use Macaulay2 net output, matching `topLevelMode = Standard`. |
 | `macaulay2.enableLanguageServer` | `true` | Enable the Macaulay2 Language Server. Requires `M2-language-server` to be installed; skipped silently if not found. |
+| `macaulay2.languageServerPath` | `""` | Absolute path to the `M2-language-server` executable. Leave empty to detect it automatically. |
 
 ## Regenerating the grammars
 

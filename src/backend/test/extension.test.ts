@@ -17,6 +17,9 @@ import {
   getM2ExecutableStatusText,
 } from "../executableSwitcher";
 import {
+  CachedCommandResolver,
+  CommandProbe,
+  createCachedCommandResolver,
   getM2ExecutableResolutionDetail,
   getM2LaunchConfiguration,
   M2ExecutableResolution,
@@ -35,6 +38,10 @@ import {
 } from "../repl";
 import { formatMacaulay2Text } from "../formatter";
 import { spacedOperators } from "../operators";
+import {
+  createLanguageServerController,
+  LanguageServerControllerOptions,
+} from "../languageServer";
 
 // You can import and use all API from the 'vscode' module
 // as well as import your extension to test it
@@ -364,6 +371,237 @@ suite("Executable Switcher", function () {
       }),
       "$(terminal) M2: WSL:/usr/bin/M2",
     );
+  });
+});
+
+suite("Language Server Controller", function () {
+  interface FakeClient {
+    start(): Thenable<void>;
+    stop(): Thenable<void>;
+    restart(): Thenable<void>;
+    calls: string[];
+    failStart?: unknown;
+    failRestart?: unknown;
+  }
+
+  function createFakeClient(): FakeClient {
+    const client: FakeClient = {
+      calls: [],
+      start() {
+        client.calls.push("start");
+        return client.failStart
+          ? Promise.reject(client.failStart)
+          : Promise.resolve();
+      },
+      stop() {
+        client.calls.push("stop");
+        return Promise.resolve();
+      },
+      restart() {
+        client.calls.push("restart");
+        return client.failRestart
+          ? Promise.reject(client.failRestart)
+          : Promise.resolve();
+      },
+    };
+    return client;
+  }
+
+  function createHarness(
+    probes: CommandProbe[],
+    overrides: Partial<LanguageServerControllerOptions> = {},
+  ) {
+    const client = createFakeClient();
+    let probeCount = 0;
+    // Runs out of scripted answers rather than repeating the last one, so a
+    // controller that probes more often than expected fails loudly.
+    const resolver: CachedCommandResolver = createCachedCommandResolver(
+      "M2-language-server",
+      () => {
+        const probe = probes[probeCount];
+        probeCount += 1;
+        assert.ok(probe, `unexpected probe #${probeCount}`);
+        return probe;
+      },
+    );
+
+    const reported: string[] = [];
+    const controller = createLanguageServerController({
+      client,
+      resolver,
+      configure: () => {},
+      isEnabled: () => true,
+      reportDisabled: () => reported.push("disabled"),
+      reportNotFound: () => reported.push("notFound"),
+      reportStartError: () => reported.push("startError"),
+      ...overrides,
+    });
+
+    return {
+      client,
+      controller,
+      reported,
+      get probeCount() {
+        return probeCount;
+      },
+    };
+  }
+
+  const found: CommandProbe = {
+    resolution: {
+      executablePath: "/usr/bin/M2-language-server",
+      source: "PATH",
+    },
+    timedOut: false,
+  };
+  const notFound: CommandProbe = { timedOut: false };
+  const timedOut: CommandProbe = { timedOut: true };
+
+  test("probes once when the language server is not installed", async function () {
+    // The bug this guards: start() is called from onDidChangeActiveTextEditor,
+    // so a missing language server used to mean a blocking probe per tab
+    // switch.
+    const harness = createHarness([notFound]);
+
+    await harness.controller.start();
+    await harness.controller.start();
+    await harness.controller.start();
+
+    assert.equal(harness.probeCount, 1);
+    assert.deepEqual(harness.client.calls, []);
+  });
+
+  test("probes once when the language server starts", async function () {
+    const harness = createHarness([found]);
+
+    await harness.controller.start();
+    await harness.controller.start();
+
+    assert.equal(harness.probeCount, 1);
+    assert.deepEqual(harness.client.calls, ["start"]);
+  });
+
+  test("does not probe while disabled", async function () {
+    const harness = createHarness([], { isEnabled: () => false });
+
+    await harness.controller.start();
+
+    assert.equal(harness.probeCount, 0);
+    assert.deepEqual(harness.client.calls, []);
+  });
+
+  test("coalesces concurrent starts into one", async function () {
+    const harness = createHarness([found]);
+
+    await Promise.all([
+      harness.controller.start(),
+      harness.controller.start(),
+      harness.controller.start(),
+    ]);
+
+    assert.equal(harness.probeCount, 1);
+    assert.deepEqual(harness.client.calls, ["start"]);
+  });
+
+  test("does not cache a probe that timed out", async function () {
+    // A slow login shell is not evidence that the language server is absent,
+    // so the next attempt has to look again rather than inherit the verdict.
+    const harness = createHarness([timedOut, found]);
+
+    await harness.controller.start();
+    assert.deepEqual(harness.client.calls, []);
+
+    await harness.controller.start();
+
+    assert.equal(harness.probeCount, 2);
+    assert.deepEqual(harness.client.calls, ["start"]);
+  });
+
+  test("restart re-probes and starts a server installed since activation", async function () {
+    const harness = createHarness([notFound, found]);
+
+    await harness.controller.start();
+    assert.deepEqual(harness.client.calls, []);
+
+    await harness.controller.restart();
+
+    assert.equal(harness.probeCount, 2);
+    assert.deepEqual(harness.client.calls, ["start"]);
+    assert.deepEqual(harness.reported, []);
+  });
+
+  test("restart of a running server restarts the client", async function () {
+    const harness = createHarness([found, found]);
+
+    await harness.controller.start();
+    await harness.controller.restart();
+
+    assert.deepEqual(harness.client.calls, ["start", "restart"]);
+  });
+
+  test("restart reports when the language server is disabled", async function () {
+    const harness = createHarness([], { isEnabled: () => false });
+
+    await harness.controller.restart();
+
+    assert.equal(harness.probeCount, 0);
+    assert.deepEqual(harness.reported, ["disabled"]);
+  });
+
+  test("restart stops a running server whose executable has gone", async function () {
+    // Otherwise the user is told it was not found while it is still running,
+    // and start() short-circuits on the stale started flag forever after.
+    const harness = createHarness([found, notFound, found]);
+
+    await harness.controller.start();
+    await harness.controller.restart();
+
+    assert.deepEqual(harness.client.calls, ["start", "stop"]);
+    assert.deepEqual(harness.reported, ["notFound"]);
+
+    await harness.controller.restart();
+    assert.deepEqual(harness.client.calls, ["start", "stop", "start"]);
+  });
+
+  test("a start racing a restart does not start the client twice", async function () {
+    const harness = createHarness([found, found]);
+
+    await harness.controller.start();
+
+    const restarting = harness.controller.restart();
+    const racing = harness.controller.start();
+    await Promise.all([restarting, racing]);
+
+    assert.deepEqual(harness.client.calls, ["start", "restart"]);
+    assert.deepEqual(harness.reported, []);
+  });
+
+  test("reports a failed start once and allows a later retry", async function () {
+    const harness = createHarness([found, found]);
+    harness.client.failStart = new Error("boom");
+
+    await harness.controller.start();
+    assert.deepEqual(harness.reported, ["startError"]);
+
+    harness.client.failStart = undefined;
+    await harness.controller.restart();
+
+    assert.deepEqual(harness.client.calls, ["start", "start"]);
+    assert.deepEqual(harness.reported, ["startError"]);
+  });
+
+  test("a failed restart leaves the server startable again", async function () {
+    const harness = createHarness([found, found, found]);
+    await harness.controller.start();
+
+    harness.client.failRestart = new Error("boom");
+    await harness.controller.restart();
+    assert.deepEqual(harness.reported, ["startError"]);
+
+    harness.client.failRestart = undefined;
+    await harness.controller.restart();
+
+    assert.deepEqual(harness.client.calls, ["start", "restart", "start"]);
   });
 });
 

@@ -28,6 +28,12 @@ export function registerM2ExecutableSwitcher(
   statusBarItem.command = "macaulay2.selectExecutablePath";
   context.subscriptions.push(statusBarItem);
 
+  // This resolves the M2 executable, which is a synchronous, blocking probe:
+  // it can spawn a login shell, or Cygwin bash and wsl.exe on Windows.  It is
+  // cheap enough to leave uncached only because the triggers below are rare
+  // and user-initiated.  Wiring it to a frequent event -- with
+  // onDidChangeActiveTextEditor the tempting one -- would stall the extension
+  // host on every tab switch, which is the bug language server discovery had.
   const updateStatusBarItem = () =>
     updateM2ExecutableSwitcherStatus(statusBarItem);
 

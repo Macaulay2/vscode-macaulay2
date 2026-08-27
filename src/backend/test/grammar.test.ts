@@ -284,8 +284,9 @@ suite("TextMate Grammars", () => {
         "scripts",
         "generate-syntax.js",
       );
-      const { render, readTokens, format, generatedElsewhere } =
-        require(generatorPath);
+      const { render, readTokens, format, generatedElsewhere } = require(
+        generatorPath,
+      );
 
       const rendered: { [file: string]: string } = await render(readTokens());
 
@@ -366,6 +367,34 @@ suite("TextMate Grammars", () => {
       assert.strictEqual(
         await scopeOf("m = a // b", "//"),
         "keyword.operator.macaulay2",
+      );
+    });
+
+    test("only real assignments get the assignment scope", async () => {
+      // getParsing reports {14, 13, -1} for "->", "=>" and ">>" as well as for
+      // the assignments, so classifying on the signature alone painted the
+      // option-handling idiom below as an assignment.
+      assert.strictEqual(
+        await scopeOf("f = opts >> o -> o.Verbose", ">>"),
+        "keyword.operator.macaulay2",
+      );
+      assert.strictEqual(
+        await scopeOf("x >>= 2", ">>="),
+        "keyword.operator.assignment.macaulay2",
+      );
+      assert.strictEqual(
+        await scopeOf("x <- 2", "<-"),
+        "keyword.operator.assignment.macaulay2",
+      );
+      // These two keep dedicated scopes from patterns ahead of the generated
+      // tables, so moving them out of the assignment group changes nothing.
+      assert.strictEqual(
+        await scopeOf("f = x -> x", "->"),
+        "keyword.operator.functionArrow.macaulay2",
+      );
+      assert.strictEqual(
+        await scopeOf("o = new HashTable from {a => 1}", "=>"),
+        "keyword.operator.optionArrow.macaulay2",
       );
     });
 

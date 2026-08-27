@@ -37,8 +37,12 @@ if #cachedSymbols == 0 then error "Style did not populate cachedSymbols"
 -- the interpreter what it does with each one.
 --
 -- getParsing returns {precedence, binaryStrength, unaryStrength}.  Every
--- assignment-like keyword answers {14, 13, -1}, which is what separates them
--- from the rest; nothing else in the dictionary shares that signature.
+-- assignment answers {14, 13, -1}, but so do "->", "=>" and ">>": the
+-- signature really says "right-associative at this precedence", and those
+-- three merely parse the same way.  Of the keywords carrying it, the
+-- assignments are the ones ending in "=" -- every augmented assignment, and
+-- "=" itself -- plus "<-".  Filtering on the signature alone scoped
+-- "opts >> f -> ..." as an assignment.
 --
 -- The delimiters below are keywords too, and would otherwise be scoped as
 -- operators -- painting every parenthesis in the editor.
@@ -61,7 +65,9 @@ operators = sort unique(toString \ select(values Core.Dictionary,
 	and not isMember(k, delimiters)))
 
 assignmentSignature = {14, 13, -1}
-isAssignment = s -> getParsing getGlobalSymbol s == assignmentSignature
+isAssignment = s -> (
+    getParsing getGlobalSymbol s == assignmentSignature
+    and (match("=$", s) or s == "<-"))
 
 -- The formatter puts spaces around these.  It must not be given the full
 -- operator list: spacing every operator would rewrite a^2 as a ^ 2 and x_1 as

@@ -50,6 +50,30 @@
 				"title": "Interrupt M2 Computation"
 			},
 			{
+				"command": "macaulay2.sendLineToREPL",
+				"title": "Send Line to M2 REPL"
+			},
+			{
+				"command": "macaulay2.sendRegionToREPL",
+				"title": "Send Region to M2 REPL"
+			},
+			{
+				"command": "macaulay2.sendBufferToREPL",
+				"title": "Send Buffer to M2 REPL"
+			},
+			{
+				"command": "macaulay2.sendAboveToREPL",
+				"title": "Send Everything Above Point to M2 REPL"
+			},
+			{
+				"command": "macaulay2.sendBelowToREPL",
+				"title": "Send Everything Below Point to M2 REPL"
+			},
+			{
+				"command": "macaulay2.sendParagraphToREPL",
+				"title": "Send Paragraph to M2 REPL"
+			},
+			{
 				"command": "macaulay2.selectExecutablePath",
 				"title": "Select M2 Executable"
 			},

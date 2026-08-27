@@ -31,6 +31,7 @@ import {
   getM2StartupPatch,
   getM2TerminalProcessArgs,
   getM2WebviewProcessArgs,
+  getParagraphLineRange,
   shouldCloseWebviewOnM2Input,
 } from "../repl";
 import { formatMacaulay2Text } from "../formatter";
@@ -630,6 +631,101 @@ suite("Executable Launch", function () {
           "--silent",
         ],
       },
+    );
+  });
+});
+
+suite("Send Paragraph to REPL", function () {
+  function lines(...ls: string[]) {
+    return (n: number) => ls[n];
+  }
+
+  test("expands from a non-blank line to full paragraph boundaries", function () {
+    // cursor on line 1 (middle of paragraph)
+    assert.deepEqual(
+      getParagraphLineRange(1, 4, lines("x = 1", "y = 2", "", "z = 3")),
+      { startLine: 0, endLine: 1 },
+    );
+  });
+
+  test("expands to the entire paragraph when there are no surrounding blank lines", function () {
+    assert.deepEqual(
+      getParagraphLineRange(1, 3, lines("x = 1", "y = 2", "z = 3")),
+      { startLine: 0, endLine: 2 },
+    );
+  });
+
+  test("handles a single non-blank line", function () {
+    assert.deepEqual(
+      getParagraphLineRange(0, 1, lines("x = 1")),
+      { startLine: 0, endLine: 0 },
+    );
+  });
+
+  test("on a blank line with a paragraph below, sends that next paragraph", function () {
+    // cursor on line 2 (blank), paragraph is lines 3-4
+    assert.deepEqual(
+      getParagraphLineRange(
+        2,
+        5,
+        lines("x = 1", "y = 2", "", "z = 3", "w = 4"),
+      ),
+      { startLine: 3, endLine: 4 },
+    );
+  });
+
+  test("skips multiple blank lines to reach the next paragraph", function () {
+    // cursor on line 1, three blank lines before paragraph at 4-5
+    assert.deepEqual(
+      getParagraphLineRange(
+        1,
+        6,
+        lines("x = 1", "", "", "", "y = 2", "z = 3"),
+      ),
+      { startLine: 4, endLine: 5 },
+    );
+  });
+
+  test("on a blank line at the top of the file, sends the paragraph below", function () {
+    assert.deepEqual(
+      getParagraphLineRange(0, 3, lines("", "x = 1", "y = 2")),
+      { startLine: 1, endLine: 2 },
+    );
+  });
+
+  test("on a blank line with only whitespace below, falls back to the previous paragraph", function () {
+    // cursor on line 2 (blank), line 3 also blank — previous paragraph is 0-1
+    assert.deepEqual(
+      getParagraphLineRange(2, 4, lines("x = 1", "y = 2", "", "")),
+      { startLine: 0, endLine: 1 },
+    );
+  });
+
+  test("on the last line when blank, falls back to the previous paragraph", function () {
+    assert.deepEqual(
+      getParagraphLineRange(2, 3, lines("x = 1", "y = 2", "")),
+      { startLine: 0, endLine: 1 },
+    );
+  });
+
+  test("returns undefined for an entirely blank buffer", function () {
+    assert.equal(
+      getParagraphLineRange(0, 3, lines("", "", "")),
+      undefined,
+    );
+  });
+
+  test("cursor at start of file on non-blank line", function () {
+    assert.deepEqual(
+      getParagraphLineRange(0, 4, lines("x = 1", "y = 2", "", "z = 3")),
+      { startLine: 0, endLine: 1 },
+    );
+  });
+
+  test("cursor at last non-blank line", function () {
+    assert.deepEqual(
+      getParagraphLineRange(2, 3, lines("x = 1", "", "z = 3")),
+      { startLine: 2, endLine: 2 },
     );
   });
 });

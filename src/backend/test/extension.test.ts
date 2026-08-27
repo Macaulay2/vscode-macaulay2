@@ -181,6 +181,20 @@ suite("Extension Tests", function () {
     );
   });
 
+  test("every contributed command is prefixed in the palette", function () {
+    // The README documents them all as "Macaulay2: ...", which is what the
+    // category produces.  Without it a command shows up bare, next to the
+    // prefixed ones.
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "../../package.json"), "utf8"),
+    );
+    const uncategorized = manifest.contributes.commands
+      .filter((command: { category?: string }) => !command.category)
+      .map((command: { command: string }) => command.command);
+
+    assert.deepEqual(uncategorized, []);
+  });
+
   test("matches Macaulay2 identifiers and numeric literals as editor words", function () {
     const configurationSource = fs.readFileSync(
       path.join(__dirname, "../../language-configuration.json"),

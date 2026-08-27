@@ -66,6 +66,10 @@
 				"path": "./syntaxes/macaulay2.tmLanguage.json"
 			},
 			{
+				"scopeName": "text.macaulay2.simpledoc",
+				"path": "./syntaxes/simpledoc.tmLanguage.json"
+			},
+			{
 				"scopeName": "markdown.macaulay2.codeblock",
 				"path": "./syntaxes/codeblock.json",
 				"injectTo": [
@@ -291,7 +295,7 @@
 		"watch": "node esbuild.js --watch",
 		"clean": "rimraf node_modules out dist package-lock.json",
 		"test": "rimraf out/test && npm run compile && npm run compile-tests && vscode-test",
-		"update": "M2 --script generate-grammar.m2",
+		"update": "M2 --script generate-grammar.m2 && node scripts/generate-syntax.js",
 		"format": "prettier --write src/*/*.ts"
 	},
 	"devDependencies": {
@@ -308,6 +312,8 @@
 		"rimraf": "^6.0.1",
 		"tslint": "^5.12.1",
 		"typescript": "^5.4.0",
-		"vscode-languageclient": "^9.0.1"
+		"vscode-languageclient": "^9.0.1",
+		"vscode-oniguruma": "^2.0.1",
+		"vscode-textmate": "^9.3.2"
 	}
 }

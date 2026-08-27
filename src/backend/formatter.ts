@@ -2,6 +2,8 @@
 
 import * as vscode from "vscode";
 
+import { spacedOperators } from "./operators";
+
 type FormatterState =
   | "code"
   | "blockComment"
@@ -20,62 +22,9 @@ interface FormattedLine {
   leadingClosers: number;
 }
 
-const operatorTokens = [
-  "===>=",
-  "<==>=",
-  "@@?=",
-  "^**=",
-  "===>",
-  "==>=",
-  "..<=",
-  "<===",
-  "<==>",
-  "===",
-  "=!=",
-  "==>",
-  "<==",
-  "++=",
-  "**=",
-  "//=",
-  "<<=",
-  ">>=",
-  "??=",
-  "@@=",
-  "^^=",
-  "|-=",
-  "|_=",
-  "||=",
-  "^<=",
-  "^>=",
-  "_<=",
-  "_>=",
-  "\u00b7=",
-  "\u2298=",
-  "\u29e2=",
-  "=>",
-  "->",
-  ":=",
-  "==",
-  "!=",
-  "<=",
-  ">=",
-  "*=",
-  "+=",
-  "-=",
-  "/=",
-  "%=",
-  "&=",
-  "@=",
-  "\\=",
-  "\\\\=",
-  "^=",
-  "_=",
-  "|=",
-  "~=",
-  "..=",
-  "++",
-  "=",
-].sort((left, right) => right.length - left.length);
+// Generated from Macaulay2 itself; see generate-grammar.m2.  Already sorted
+// longest first, which is what makes the greedy match below correct.
+const operatorTokens = spacedOperators;
 
 function getIndentText(
   indentLevel: number,
@@ -90,8 +39,7 @@ function getIndentText(
   }
 
   return (
-    "\t".repeat(Math.floor(columns / tabSize)) +
-    " ".repeat(columns % tabSize)
+    "\t".repeat(Math.floor(columns / tabSize)) + " ".repeat(columns % tabSize)
   );
 }
 
@@ -343,7 +291,9 @@ export function formatMacaulay2Text(
     state = formatted.state;
   }
 
-  return formattedLines.length > 0 ? `${formattedLines.join(newline)}${newline}` : "";
+  return formattedLines.length > 0
+    ? `${formattedLines.join(newline)}${newline}`
+    : "";
 }
 
 export function activate(context: vscode.ExtensionContext) {

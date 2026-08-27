@@ -18,13 +18,16 @@ async function build() {
       ...baseConfig,
       entryPoints: {
         "extension.test": "src/backend/test/extension.test.ts",
+        "grammar.test": "src/backend/test/grammar.test.ts",
         "outputLayout.test": "src/webview/test/outputLayout.test.ts",
       },
       outdir: "out/test",
       platform: "node",
       format: "cjs",
       target: "node18",
-      external: ["vscode"],
+      // vscode-oniguruma loads onig.wasm relative to its own location, so it
+      // has to stay in node_modules rather than being bundled.
+      external: ["vscode", "vscode-textmate", "vscode-oniguruma"],
     });
 
     if (watch) {

@@ -24,7 +24,10 @@ import {
   getM2LaunchConfiguration,
   M2ExecutableResolution,
   normalizeM2LaunchArgs,
+  probeCommandWithWsl,
+  probeWindowsCommandExecutable,
   resolveM2Executable,
+  runShellCommand,
   windowsPathToWslPath,
   wslPathToWindowsPath,
 } from "../executablePath";
@@ -374,6 +377,51 @@ suite("Executable Switcher", function () {
   });
 });
 
+suite("Command Executable Resolution", function () {
+  test("preserves a WSL shell timeout", function () {
+    const result = probeCommandWithWsl(
+      "M2-language-server",
+      () => "C:\\Windows\\System32\\wsl.exe",
+      () => ({ timedOut: true }),
+    );
+
+    assert.deepEqual(result, { timedOut: true });
+  });
+
+  test("propagates a WSL timeout after a conclusive Cygwin miss", function () {
+    const result = probeWindowsCommandExecutable(
+      "M2-language-server",
+      () => ({ timedOut: false }),
+      () => ({ timedOut: true }),
+    );
+
+    assert.deepEqual(result, { timedOut: true });
+  });
+
+  test("uses a hard kill signal for synchronous shell probes", function () {
+    let receivedTimeout: number | undefined;
+    let receivedKillSignal: string | undefined;
+    const timeoutError = Object.assign(new Error("timed out"), {
+      signal: "SIGKILL",
+    });
+
+    const result = runShellCommand(
+      "/path/to/shell",
+      ["-lc", "command -v M2-language-server"],
+      123,
+      (_executablePath, _args, options) => {
+        receivedTimeout = options.timeout;
+        receivedKillSignal = options.killSignal;
+        throw timeoutError;
+      },
+    );
+
+    assert.equal(receivedTimeout, 123);
+    assert.equal(receivedKillSignal, "SIGKILL");
+    assert.deepEqual(result, { timedOut: true });
+  });
+});
+
 suite("Language Server Controller", function () {
   interface FakeClient {
     start(): Thenable<void>;
@@ -503,18 +551,25 @@ suite("Language Server Controller", function () {
     assert.deepEqual(harness.client.calls, ["start"]);
   });
 
-  test("does not cache a probe that timed out", async function () {
-    // A slow login shell is not evidence that the language server is absent,
-    // so the next attempt has to look again rather than inherit the verdict.
+  test("does not repeat a timed-out probe from editor starts", async function () {
+    // Editor events are not a safe retry path for synchronous discovery: a
+    // persistently slow shell would otherwise stall every tab switch.
     const harness = createHarness([timedOut, found]);
 
     await harness.controller.start();
-    assert.deepEqual(harness.client.calls, []);
-
     await harness.controller.start();
+    await harness.controller.start();
+
+    assert.equal(harness.probeCount, 1);
+    assert.deepEqual(harness.client.calls, []);
+    assert.deepEqual(harness.reported, []);
+
+    // The explicit command forgets the cached timeout and tries again.
+    await harness.controller.restart();
 
     assert.equal(harness.probeCount, 2);
     assert.deepEqual(harness.client.calls, ["start"]);
+    assert.deepEqual(harness.reported, []);
   });
 
   test("restart re-probes and starts a server installed since activation", async function () {
@@ -537,6 +592,24 @@ suite("Language Server Controller", function () {
     await harness.controller.restart();
 
     assert.deepEqual(harness.client.calls, ["start", "restart"]);
+  });
+
+  test("restart preserves a running client when resolution times out", async function () {
+    const harness = createHarness([found, timedOut, found]);
+
+    await harness.controller.start();
+    await harness.controller.restart();
+
+    assert.equal(harness.probeCount, 2);
+    assert.deepEqual(harness.client.calls, ["start"]);
+    assert.deepEqual(harness.reported, []);
+
+    // A later explicit restart retries and reuses the still-running client.
+    await harness.controller.restart();
+
+    assert.equal(harness.probeCount, 3);
+    assert.deepEqual(harness.client.calls, ["start", "restart"]);
+    assert.deepEqual(harness.reported, []);
   });
 
   test("restart reports when the language server is disabled", async function () {

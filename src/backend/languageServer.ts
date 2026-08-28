@@ -84,17 +84,24 @@ export function createLanguageServerController(
   };
 
   // Returns whether the language server is ready to be launched, and records a
-  // conclusive "not installed" so the editor events stop asking.  A probe that
-  // merely timed out is not conclusive: the next attempt should look again.
+  // conclusive "not installed" so the editor events stop asking.  A timeout is
+  // kept distinct so restart() never tears down a healthy client because one
+  // fresh lookup was inconclusive.
   const configureResolved = () => {
     const probe = resolver.resolve();
     if (!probe.resolution) {
-      missing = !probe.timedOut;
-      return false;
+      if (probe.timedOut) {
+        missing = false;
+        return "timedOut" as const;
+      }
+
+      missing = true;
+      return "missing" as const;
     }
 
+    missing = false;
     configure(probe.resolution);
-    return true;
+    return "resolved" as const;
   };
 
   const start = () => {
@@ -102,7 +109,7 @@ export function createLanguageServerController(
     if (pending) return pending;
 
     return run(async () => {
-      if (!configureResolved()) return;
+      if (configureResolved() !== "resolved") return;
 
       await client.start();
       started = true;
@@ -126,7 +133,14 @@ export function createLanguageServerController(
       resolver.forget();
       missing = false;
 
-      if (!configureResolved()) {
+      const resolutionState = configureResolved();
+      if (resolutionState === "timedOut") {
+        // A timeout says nothing about whether the executable still exists.
+        // Keep a running client alive, and let the next explicit restart retry.
+        return;
+      }
+
+      if (resolutionState === "missing") {
         // The executable has gone since it was last resolved.  Leaving the old
         // client running while telling the user it was not found would be a
         // lie, and start() would then short-circuit on `started` forever.

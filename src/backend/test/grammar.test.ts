@@ -68,9 +68,17 @@ function collectRegexes(node: unknown, where: string): [string, string][] {
   return found;
 }
 
-const grammarFiles = fs
-  .readdirSync(syntaxesDir)
-  .filter((file) => file.endsWith(".json") && file.endsWith("tmLanguage.json"));
+//
+// Taken from the manifest rather than by globbing syntaxes/, so that a grammar
+// added to the extension without being validated here fails a test rather than
+// quietly going unchecked.  It also keeps the templates and m2-tokens.json,
+// which live in the same directory but are not grammars, out of the list.
+//
+const grammarFiles: string[] = JSON.parse(
+  fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"),
+).contributes.grammars.map((grammar: { path: string }) =>
+  path.basename(grammar.path),
+);
 
 //
 // Tokenizing for real is the only way to test a TextMate grammar: the scopes
@@ -140,10 +148,15 @@ async function scopeOf(source: string, text: string): Promise<string> {
 }
 
 suite("TextMate Grammars", () => {
-  test("syntaxes/ contains the grammars the extension contributes", () => {
+  test("every contributed grammar is present in syntaxes/", () => {
+    const missing = grammarFiles.filter(
+      (file) => !fs.existsSync(path.join(syntaxesDir, file)),
+    );
+
+    assert.deepStrictEqual(missing, []);
     assert.ok(
       grammarFiles.includes("macaulay2.tmLanguage.json"),
-      `expected macaulay2.tmLanguage.json in ${syntaxesDir}`,
+      `expected macaulay2.tmLanguage.json among ${grammarFiles.join(", ")}`,
     );
   });
 
@@ -427,6 +440,27 @@ suite("TextMate Grammars", () => {
       assert.strictEqual(inner[1], "string.quoted.other.tripleslash.macaulay2");
     });
 
+    test("//// is an escape, not a terminator", async () => {
+      // Inside a /// string a literal slash is written ////, so a run of four
+      // must not end the string.  Runs of five or more are not handled, which
+      // matches the comment on the rule.
+      const source = "s = /// a //// b /// + 1";
+
+      assert.strictEqual(
+        await scopeOf(source, "////"),
+        "constant.character.escape.macaulay2",
+      );
+      assert.strictEqual(
+        await scopeOf(source, "b"),
+        "string.quoted.other.tripleslash.macaulay2",
+      );
+      // The string really did end at the third ///, so what follows is code.
+      assert.strictEqual(
+        await scopeOf(source, "+"),
+        "keyword.operator.macaulay2",
+      );
+    });
+
     test("TEST /// holds real Macaulay2 code", async () => {
       assert.strictEqual(
         await scopeOf("TEST /// assert(1 == 1) ///", "assert"),
@@ -465,6 +499,11 @@ suite("TextMate Grammars", () => {
       }
     });
 
+    // An unmatched @ runs to the end of the section rather than stopping at the
+    // line, which looks wrong until you try it: SimpleDoc itself rejects an
+    // unbalanced @, so there is no valid document that renders badly because of
+    // it.  Checked against the interpreter, which errors out of
+    // SimpleDoc.m2 rather than treating the text as prose.
     test("an @...@ span embeds Macaulay2", async () => {
       assert.strictEqual(
         await scopeOf(docstring, "TO"),

@@ -62,7 +62,7 @@ There is no REPL target setting. To send evaluation to the terminal from a keybi
 | `macaulay2.webviewTopLevelMode` | `webapp` | Choose the webview REPL top-level output mode: `webapp` or `standard`. |
 | `macaulay2.webviewMatrixKatexMaxEntries` | `2500` | Maximum matrix entries the webview REPL renders with KaTeX. Larger matrices use Macaulay2 net output, matching `topLevelMode = Standard`. |
 | `macaulay2.enableLanguageServer` | `true` | Enable the Macaulay2 Language Server. Requires `M2-language-server` to be installed; skipped silently if not found. |
-| `macaulay2.languageServerPath` | `""` | Absolute path to the `M2-language-server` executable. Leave empty to detect it automatically. |
+| `macaulay2.languageServerPath` | `""` | Absolute path to the `M2-language-server` executable. Leave empty to detect it automatically. On Windows, a Unix path is launched through the default WSL distribution. |
 
 ## Regenerating the grammars
 

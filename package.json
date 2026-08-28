@@ -114,8 +114,8 @@
 				"macaulay2.languageServerPath": {
 					"type": "string",
 					"default": "",
-					"description": "Absolute path to the M2-language-server executable. Leave empty to detect it automatically.",
-					"scope": "window"
+					"description": "Absolute path to the M2-language-server executable. Leave empty to detect it automatically. On Windows, a Unix path is launched through the default WSL distribution.",
+					"scope": "machine-overridable"
 				},
 				"macaulay2.executablePath": {
 					"type": "string",

@@ -164,23 +164,17 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      // A new path means the cached resolution is stale, and restart is
-      // already the operation that re-probes and swaps the client.
-      if (e.affectsConfiguration("macaulay2.languageServerPath")) {
-        void controller.restart();
-        return;
-      }
-
-      if (!e.affectsConfiguration("macaulay2.enableLanguageServer")) return;
-
-      // The controller can start and stop on demand, so apply the setting
-      // rather than asking for a window reload.  Turning it back on only
-      // starts the server if one is installed, which is the same thing the
-      // editor events would do.
-      if (isLanguageServerEnabled()) {
-        void controller.start();
-      } else {
-        void controller.stop();
+      const pathChanged = e.affectsConfiguration(
+        "macaulay2.languageServerPath",
+      );
+      const enabledChanged = e.affectsConfiguration(
+        "macaulay2.enableLanguageServer",
+      );
+      if (pathChanged || enabledChanged) {
+        // Handle both settings as one final desired state.  This also covers a
+        // single settings.json save that changes the path while disabling the
+        // server, without letting the path branch skip shutdown.
+        void controller.configurationChanged();
       }
     }),
   );

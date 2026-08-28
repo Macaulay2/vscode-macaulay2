@@ -26,7 +26,10 @@ import {
   getM2LaunchConfiguration,
   M2ExecutableResolution,
   normalizeM2LaunchArgs,
+  probeCommandWithWsl,
+  probeWindowsCommandExecutable,
   resolveM2Executable,
+  runShellCommand,
   windowsPathToWslPath,
   wslPathToWindowsPath,
 } from "../executablePath";
@@ -179,6 +182,12 @@ suite("Extension Tests", function () {
         "editor.tabSize": 8,
         "editor.indentSize": 4,
       },
+    );
+    assert.equal(
+      manifest.contributes.configuration.properties[
+        "macaulay2.languageServerPath"
+      ].scope,
+      "machine-overridable",
     );
   });
 
@@ -390,7 +399,7 @@ suite("Executable Switcher", function () {
   });
 });
 
-suite("Configured Command Resolution", function () {
+suite("Command Executable Resolution", function () {
   const autoDetected: CommandProbe = {
     resolution: {
       executablePath: "/usr/bin/M2-language-server",
@@ -408,6 +417,7 @@ suite("Configured Command Resolution", function () {
         probed = true;
         return autoDetected;
       },
+      "linux",
     );
 
     assert.deepEqual(probe, {
@@ -445,6 +455,7 @@ suite("Configured Command Resolution", function () {
         () => {
           throw new Error("should not auto-detect");
         },
+        "linux",
       ),
       {
         resolution: {
@@ -454,6 +465,98 @@ suite("Configured Command Resolution", function () {
         timedOut: false,
       },
     );
+  });
+
+  test("launches a configured Unix path through WSL on Windows", function () {
+    let probed = false;
+    const probe = probeConfiguredCommand(
+      "/opt/Macaulay2/bin/M2-language-server",
+      "M2-language-server",
+      () => {
+        probed = true;
+        return autoDetected;
+      },
+      "win32",
+      () => "C:\\Windows\\System32\\wsl.exe",
+    );
+
+    assert.deepEqual(probe, {
+      resolution: {
+        executablePath: "C:\\Windows\\System32\\wsl.exe",
+        source: "setting via WSL",
+        args: ["--exec", "/opt/Macaulay2/bin/M2-language-server"],
+      },
+      timedOut: false,
+    });
+    assert.equal(probed, false);
+  });
+
+  test("launches a configured native Windows path directly", function () {
+    const configured = "C:\\Program Files\\Macaulay2\\M2-language-server.exe";
+
+    assert.deepEqual(
+      probeConfiguredCommand(
+        configured,
+        "M2-language-server",
+        () => {
+          throw new Error("should not auto-detect");
+        },
+        "win32",
+        () => {
+          throw new Error("should not look for WSL");
+        },
+      ),
+      {
+        resolution: {
+          executablePath: configured,
+          source: "setting",
+        },
+        timedOut: false,
+      },
+    );
+  });
+
+  test("preserves a WSL shell timeout", function () {
+    const result = probeCommandWithWsl(
+      "M2-language-server",
+      () => "C:\\Windows\\System32\\wsl.exe",
+      () => ({ timedOut: true }),
+    );
+
+    assert.deepEqual(result, { timedOut: true });
+  });
+
+  test("propagates a WSL timeout after a conclusive Cygwin miss", function () {
+    const result = probeWindowsCommandExecutable(
+      "M2-language-server",
+      () => ({ timedOut: false }),
+      () => ({ timedOut: true }),
+    );
+
+    assert.deepEqual(result, { timedOut: true });
+  });
+
+  test("uses a hard kill signal for synchronous shell probes", function () {
+    let receivedTimeout: number | undefined;
+    let receivedKillSignal: string | undefined;
+    const timeoutError = Object.assign(new Error("timed out"), {
+      signal: "SIGKILL",
+    });
+
+    const result = runShellCommand(
+      "/path/to/shell",
+      ["-lc", "command -v M2-language-server"],
+      123,
+      (_executablePath, _args, options) => {
+        receivedTimeout = options.timeout;
+        receivedKillSignal = options.killSignal;
+        throw timeoutError;
+      },
+    );
+
+    assert.equal(receivedTimeout, 123);
+    assert.equal(receivedKillSignal, "SIGKILL");
+    assert.deepEqual(result, { timedOut: true });
   });
 });
 
@@ -473,26 +576,32 @@ suite("Language Server Controller", function () {
     overrides: Partial<LanguageServerControllerOptions> = {},
   ) {
     const clients: FakeClient[] = [];
+    let failCreate: unknown;
     let failStart: unknown;
+    let failStop: unknown;
+    let stopHook: (() => Thenable<void> | void) | undefined;
 
-    const createClient = (resolution: CommandExecutableResolution) => {
+    const createClient = async (resolution: CommandExecutableResolution) => {
+      if (failCreate !== undefined) throw failCreate;
+
       const client: FakeClient = {
         executablePath: resolution.executablePath,
         calls: [],
-        start() {
+        async start() {
           client.calls.push("start");
-          return failStart ? Promise.reject(failStart) : Promise.resolve();
+          if (failStart !== undefined) throw failStart;
         },
-        stop() {
+        async stop() {
           client.calls.push("stop");
-          return Promise.resolve();
+          if (stopHook) await stopHook();
+          if (failStop !== undefined) throw failStop;
         },
         dispose() {
           client.calls.push("dispose");
         },
       };
       clients.push(client);
-      return Promise.resolve(client);
+      return client;
     };
 
     let probeCount = 0;
@@ -524,8 +633,17 @@ suite("Language Server Controller", function () {
       clients,
       controller,
       reported,
-      failWith(error: unknown) {
+      failCreateWith(error: unknown) {
+        failCreate = error;
+      },
+      failStartWith(error: unknown) {
         failStart = error;
+      },
+      failStopWith(error: unknown) {
+        failStop = error;
+      },
+      runDuringStop(hook: (() => Thenable<void> | void) | undefined) {
+        stopHook = hook;
       },
       get probeCount() {
         return probeCount;
@@ -615,18 +733,26 @@ suite("Language Server Controller", function () {
     assert.deepEqual(harness.calls, ["start"]);
   });
 
-  test("does not cache a probe that timed out", async function () {
-    // A slow login shell is not evidence that the language server is absent,
-    // so the next attempt has to look again rather than inherit the verdict.
+  test("does not repeat a timed-out probe from editor starts", async function () {
+    // Editor events are not a safe retry path for synchronous discovery: a
+    // persistently slow shell would otherwise stall every tab switch.
     const harness = createHarness([timedOut, found]);
 
     await harness.controller.start();
     assert.deepEqual(harness.clients, []);
-
     await harness.controller.start();
+    await harness.controller.start();
+
+    assert.equal(harness.probeCount, 1);
+    assert.deepEqual(harness.clients, []);
+    assert.deepEqual(harness.reported, []);
+
+    // The explicit command forgets the cached timeout and tries again.
+    await harness.controller.restart();
 
     assert.equal(harness.probeCount, 2);
     assert.deepEqual(harness.calls, ["start"]);
+    assert.deepEqual(harness.reported, []);
   });
 
   test("restart re-probes and starts a server installed since activation", async function () {
@@ -671,6 +797,30 @@ suite("Language Server Controller", function () {
     assert.deepEqual(harness.clients, []);
   });
 
+  test("restart preserves a running client when resolution times out", async function () {
+    const harness = createHarness([found, timedOut, moved]);
+
+    await harness.controller.start();
+    await harness.controller.restart();
+
+    assert.equal(harness.probeCount, 2);
+    assert.equal(harness.clients.length, 1);
+    assert.deepEqual(harness.clients[0].calls, ["start"]);
+    assert.deepEqual(harness.reported, []);
+
+    // A later explicit restart retries and replaces the still-running client.
+    await harness.controller.restart();
+
+    assert.equal(harness.probeCount, 3);
+    assert.deepEqual(
+      harness.clients.map((client) => client.executablePath),
+      ["/usr/bin/M2-language-server", "/opt/bin/M2-language-server"],
+    );
+    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
+    assert.deepEqual(harness.clients[1].calls, ["start"]);
+    assert.deepEqual(harness.reported, []);
+  });
+
   test("restart reports when the language server is disabled", async function () {
     const harness = createHarness([], { isEnabled: () => false });
 
@@ -711,17 +861,51 @@ suite("Language Server Controller", function () {
   });
 
   test("reports a failed start once and allows a later retry", async function () {
-    const harness = createHarness([found, found]);
-    harness.failWith(new Error("boom"));
+    const harness = createHarness([found]);
+    harness.failStartWith(new Error("boom"));
 
     await harness.controller.start();
     assert.deepEqual(harness.reported, ["startError"]);
+    assert.deepEqual(harness.clients[0].calls, ["start", "dispose"]);
 
-    harness.failWith(undefined);
-    await harness.controller.restart();
+    harness.failStartWith(undefined);
+    await harness.controller.start();
 
     assert.deepEqual(harness.reported, ["startError"]);
+    assert.equal(harness.probeCount, 1);
     assert.deepEqual(harness.clients[1].calls, ["start"]);
+  });
+
+  test("preserves a running client when replacement construction fails", async function () {
+    const harness = createHarness([found, moved, moved]);
+
+    await harness.controller.start();
+    harness.failCreateWith(new Error("cannot load client"));
+    await harness.controller.restart();
+
+    assert.equal(harness.probeCount, 2);
+    assert.equal(harness.clients.length, 1);
+    assert.deepEqual(harness.clients[0].calls, ["start"]);
+    assert.deepEqual(harness.reported, ["startError"]);
+
+    harness.failCreateWith(undefined);
+    await harness.controller.restart();
+
+    assert.equal(harness.probeCount, 3);
+    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
+    assert.deepEqual(harness.clients[1].calls, ["start"]);
+  });
+
+  test("disposes an unused replacement when old shutdown rejects", async function () {
+    const harness = createHarness([found, moved]);
+
+    await harness.controller.start();
+    harness.failStopWith(new Error("shutdown failed"));
+    await harness.controller.restart();
+
+    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
+    assert.deepEqual(harness.clients[1].calls, ["dispose"]);
+    assert.deepEqual(harness.reported, ["stopError"]);
   });
 
   test("stop shuts the running client down", async function () {
@@ -747,6 +931,91 @@ suite("Language Server Controller", function () {
     assert.deepEqual(harness.clients[1].calls, ["start"]);
   });
 
+  test("a start requested during shutdown runs after it", async function () {
+    const harness = createHarness([found]);
+    let markStopEntered: () => void;
+    let releaseStop: () => void;
+    const stopEntered = new Promise<void>((resolve) => {
+      markStopEntered = resolve;
+    });
+    const stopGate = new Promise<void>((resolve) => {
+      releaseStop = resolve;
+    });
+    harness.runDuringStop(() => {
+      markStopEntered();
+      return stopGate;
+    });
+
+    await harness.controller.start();
+    const stopping = harness.controller.stop();
+    await stopEntered;
+    const starting = harness.controller.start();
+    releaseStop();
+    await Promise.all([stopping, starting]);
+
+    assert.equal(harness.probeCount, 1);
+    assert.equal(harness.clients.length, 2);
+    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
+    assert.deepEqual(harness.clients[1].calls, ["start"]);
+  });
+
+  test("configuration changes while disabled invalidate without probing", async function () {
+    let enabled = true;
+    const harness = createHarness([found, moved], {
+      isEnabled: () => enabled,
+    });
+
+    await harness.controller.start();
+    enabled = false;
+    // Represents one settings save that changes the path and disables the
+    // server. It must stop the old client without probing the new path.
+    await harness.controller.configurationChanged();
+    assert.equal(harness.probeCount, 1);
+    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
+
+    // A later path edit while still disabled must invalidate the cached path,
+    // but it still must not launch discovery.
+    await harness.controller.configurationChanged();
+    assert.equal(harness.probeCount, 1);
+
+    enabled = true;
+    await harness.controller.configurationChanged();
+
+    assert.equal(harness.probeCount, 2);
+    assert.deepEqual(
+      harness.clients.map((client) => client.executablePath),
+      ["/usr/bin/M2-language-server", "/opt/bin/M2-language-server"],
+    );
+    assert.deepEqual(harness.clients[1].calls, ["start"]);
+    assert.deepEqual(harness.reported, []);
+  });
+
+  test("enabling after installation retries a cached miss", async function () {
+    let enabled = true;
+    const harness = createHarness([notFound, moved], {
+      isEnabled: () => enabled,
+    });
+
+    await harness.controller.start();
+    assert.equal(harness.probeCount, 1);
+
+    enabled = false;
+    await harness.controller.configurationChanged();
+    assert.equal(harness.probeCount, 1);
+
+    enabled = true;
+    await harness.controller.configurationChanged();
+
+    assert.equal(harness.probeCount, 2);
+    assert.equal(harness.clients.length, 1);
+    assert.equal(
+      harness.clients[0].executablePath,
+      "/opt/bin/M2-language-server",
+    );
+    assert.deepEqual(harness.clients[0].calls, ["start"]);
+    assert.deepEqual(harness.reported, []);
+  });
+
   test("stop queues behind an in-flight start", async function () {
     const harness = createHarness([found]);
 
@@ -756,6 +1025,17 @@ suite("Language Server Controller", function () {
 
     assert.equal(harness.clients.length, 1);
     assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
+  });
+
+  test("stop still disposes and reports when shutdown rejects", async function () {
+    const harness = createHarness([found]);
+
+    await harness.controller.start();
+    harness.failStopWith(new Error("shutdown failed"));
+    await harness.controller.stop();
+
+    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
+    assert.deepEqual(harness.reported, ["stopError"]);
   });
 
   test("stop is harmless when nothing ever started", async function () {

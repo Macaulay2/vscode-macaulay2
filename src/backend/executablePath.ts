@@ -34,6 +34,30 @@ interface ShellProbe {
   timedOut: boolean;
 }
 
+export interface ShellCommandResult {
+  output?: string;
+  timedOut: boolean;
+}
+
+interface ShellCommandExecutionOptions {
+  encoding: "utf8";
+  stdio: ["ignore", "pipe", "ignore"];
+  timeout?: number;
+  killSignal: "SIGKILL";
+}
+
+export type ShellCommandExecutor = (
+  executablePath: string,
+  args: string[],
+  options: ShellCommandExecutionOptions,
+) => string;
+
+export type ShellCommandRunner = (
+  executablePath: string,
+  args: string[],
+  timeout?: number,
+) => ShellCommandResult;
+
 export interface CachedCommandResolver {
   // Returns the probe rather than just the resolution: callers that stop
   // asking after a negative answer need to know whether it was conclusive.
@@ -56,12 +80,10 @@ const shellProbeTimeoutMilliseconds = 5000;
  * case is the one that pays it every single time -- there is no successful
  * lookup to stop the retries.
  *
- * A probe that timed out is deliberately *not* remembered.  The command may be
- * installed behind a shell that was merely slow, and caching that answer would
- * turn one unlucky probe into a session-long verdict.
- *
- * `forget` exists so an explicit user action can pick up an executable that was
- * installed after the extension activated.
+ * Timeouts are remembered too.  Retrying a synchronous probe from every editor
+ * event would replace one unlucky delay with a five-second stall on every tab
+ * switch.  `forget` is the explicit retry path, both for a timeout and for an
+ * executable installed after the extension activated.
  */
 export function createCachedCommandResolver(
   command: string,
@@ -77,10 +99,6 @@ export function createCachedCommandResolver(
       }
 
       const result = probe(command);
-      if (!result.resolution && result.timedOut) {
-        return result;
-      }
-
       cached = { probe: result };
       return result;
     },
@@ -94,16 +112,33 @@ export function createCachedCommandResolver(
  * Resolve a command, letting a configured path win outright.
  *
  * Mirrors how resolveM2Executable treats macaulay2.executablePath: the path is
- * taken as given rather than checked, so a wrong one surfaces as a start
- * failure naming the path instead of silently falling back to auto-detection.
+ * taken as given rather than checked, with a Unix path on Windows launched
+ * through WSL.  A wrong path therefore surfaces as a start failure naming the
+ * path instead of silently falling back to auto-detection.
  */
 export function probeConfiguredCommand(
   configuredPath: string | undefined,
   command: string,
   probe: (command: string) => CommandProbe = probeCommandExecutable,
+  platform: NodeJS.Platform = process.platform,
+  findWsl: () => string | undefined = findWslExecutable,
 ): CommandProbe {
   const configured = configuredPath?.trim();
   if (configured) {
+    if (platform === "win32" && isUnixAbsolutePath(configured)) {
+      const wslPath = findWsl();
+      if (wslPath) {
+        return {
+          resolution: {
+            executablePath: wslPath,
+            source: "setting via WSL",
+            args: ["--exec", configured],
+          },
+          timedOut: false,
+        };
+      }
+    }
+
     return {
       resolution: { executablePath: configured, source: "setting" },
       timedOut: false,
@@ -123,8 +158,8 @@ export function resolveCommandExecutable(
  * Resolve a command, reporting whether a shell probe ran out of time.
  *
  * A timeout is not the same answer as "not installed" -- the command may well
- * be there behind a shell that was merely slow -- so callers that remember a
- * negative result need to be able to decline to remember this one.
+ * be there behind a shell that was merely slow -- so callers need to preserve
+ * that distinction even when they cache the result until an explicit retry.
  */
 export function probeCommandExecutable(command: string): CommandProbe {
   const fromPath = findCommandOnPath(command);
@@ -136,23 +171,7 @@ export function probeCommandExecutable(command: string): CommandProbe {
   }
 
   if (process.platform === "win32") {
-    const fromCygwinShell = resolveCommandWithCygwinShell(command);
-    if (fromCygwinShell.executablePath) {
-      return {
-        resolution: {
-          executablePath: fromCygwinShell.executablePath,
-          source: "Cygwin shell",
-        },
-        timedOut: false,
-      };
-    }
-
-    const fromWsl = resolveCommandWithWsl(command);
-    if (fromWsl) {
-      return { resolution: fromWsl, timedOut: false };
-    }
-
-    return { timedOut: fromCygwinShell.timedOut };
+    return probeWindowsCommandExecutable(command);
   }
 
   const fromLoginShell = resolveCommandWithLoginShell(command);
@@ -167,6 +186,30 @@ export function probeCommandExecutable(command: string): CommandProbe {
   }
 
   return { timedOut: fromLoginShell.timedOut };
+}
+
+export function probeWindowsCommandExecutable(
+  command: string,
+  probeCygwin: (command: string) => ShellProbe = resolveCommandWithCygwinShell,
+  probeWsl: (command: string) => CommandProbe = probeCommandWithWsl,
+): CommandProbe {
+  const fromCygwinShell = probeCygwin(command);
+  if (fromCygwinShell.executablePath) {
+    return {
+      resolution: {
+        executablePath: fromCygwinShell.executablePath,
+        source: "Cygwin shell",
+      },
+      timedOut: false,
+    };
+  }
+
+  const fromWsl = probeWsl(command);
+  if (fromWsl.resolution) {
+    return fromWsl;
+  }
+
+  return { timedOut: fromCygwinShell.timedOut || fromWsl.timedOut };
 }
 
 export function resolveM2Executable(
@@ -484,7 +527,7 @@ function resolveCommandWithCygwinShell(command: string): ShellProbe {
 }
 
 function resolveWithWsl(): M2ExecutableResolution | undefined {
-  const resolved = resolveCommandWithWsl("M2");
+  const resolved = probeCommandWithWsl("M2").resolution;
   if (!resolved?.args || resolved.args.length < 2) {
     return undefined;
   }
@@ -497,28 +540,33 @@ function resolveWithWsl(): M2ExecutableResolution | undefined {
   };
 }
 
-function resolveCommandWithWsl(
+export function probeCommandWithWsl(
   command: string,
-): CommandExecutableResolution | undefined {
-  const wslPath = findWslExecutable();
+  findWsl: () => string | undefined = findWslExecutable,
+  run: ShellCommandRunner = runShellCommand,
+): CommandProbe {
+  const wslPath = findWsl();
   if (!wslPath) {
-    return undefined;
+    return { timedOut: false };
   }
 
-  const resolved = runShellCommandOutput(
+  const result = run(
     wslPath,
     ["--exec", "sh", "-lc", `command -v ${quoteShellWord(command)}`],
     shellProbeTimeoutMilliseconds,
   );
-  const wslExecutablePath = normalizeShellOutputPath(resolved);
+  const wslExecutablePath = normalizeShellOutputPath(result.output);
   if (!wslExecutablePath || !isUnixAbsolutePath(wslExecutablePath)) {
-    return undefined;
+    return { timedOut: result.timedOut };
   }
 
   return {
-    executablePath: wslPath,
-    source: "WSL",
-    args: ["--exec", wslExecutablePath],
+    resolution: {
+      executablePath: wslPath,
+      source: "WSL",
+      args: ["--exec", wslExecutablePath],
+    },
+    timedOut: false,
   };
 }
 
@@ -561,21 +609,27 @@ function findWslExecutable(): string | undefined {
   ]);
 }
 
-interface ShellCommandResult {
-  output?: string;
-  timedOut: boolean;
-}
+const defaultShellCommandExecutor: ShellCommandExecutor = (
+  executablePath,
+  args,
+  options,
+) => execFileSync(executablePath, args, options);
 
-function runShellCommand(
+export function runShellCommand(
   shellPath: string,
   args: string[],
   timeout?: number,
+  execute: ShellCommandExecutor = defaultShellCommandExecutor,
 ): ShellCommandResult {
   try {
-    const output = execFileSync(shellPath, args, {
+    const output = execute(shellPath, args, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout,
+      // execFileSync waits after a timeout until the child actually exits.
+      // SIGTERM can be trapped or ignored, so it does not impose a hard bound
+      // on this synchronous extension-host work.
+      killSignal: "SIGKILL",
     }).trim();
     return { output: output || undefined, timedOut: false };
   } catch (error) {
@@ -599,7 +653,7 @@ function isTimeoutError(error: unknown): boolean {
   const failure = error as
     | (NodeJS.ErrnoException & { signal?: NodeJS.Signals | null })
     | undefined;
-  return failure?.code === "ETIMEDOUT" || failure?.signal === "SIGTERM";
+  return failure?.code === "ETIMEDOUT" || failure?.signal === "SIGKILL";
 }
 
 function normalizeShellOutputPath(

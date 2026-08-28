@@ -567,6 +567,8 @@ suite("Language Server Controller", function () {
 
     assert.equal(harness.probeCount, 1);
     assert.deepEqual(harness.clients, []);
+    // Silent: nobody asked for a language server by opening a file.
+    assert.deepEqual(harness.reported, []);
   });
 
   test("builds no client when the language server is not installed", async function () {
@@ -654,6 +656,19 @@ suite("Language Server Controller", function () {
     );
     assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
     assert.deepEqual(harness.clients[1].calls, ["start"]);
+  });
+
+  test("restart says so when there is nothing to restart", async function () {
+    // The counterpart to start() staying silent: a restart is an explicit
+    // request, so it gets an answer every time rather than failing quietly.
+    const harness = createHarness([notFound, notFound]);
+
+    await harness.controller.restart();
+    assert.deepEqual(harness.reported, ["notFound"]);
+
+    await harness.controller.restart();
+    assert.deepEqual(harness.reported, ["notFound", "notFound"]);
+    assert.deepEqual(harness.clients, []);
   });
 
   test("restart reports when the language server is disabled", async function () {

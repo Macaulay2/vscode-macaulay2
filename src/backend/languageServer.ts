@@ -2,18 +2,15 @@
 // Start/restart logic for the Macaulay2 language server, kept apart from
 // activate() so it can be tested against fakes.
 //
-// The shape of the problem: start() is driven by editor events -- every opened
-// document and every switch of the active editor -- while restart() is a user
-// command, and resolving the executable is a synchronous, expensive probe.  So
-// the rules are that the probe happens at most once, that a negative answer
-// stops the editor events from asking again, and that the user command is the
-// way back from either.
+// Editor events may call start() repeatedly, configuration changes can stop or
+// replace the client, and explicit restarts must re-run executable discovery.
+// Every operation is serialized below so the final requested state wins without
+// overlapping vscode-languageclient lifecycle calls.
 //
 // The client is created here rather than handed in, and only once a resolution
 // has actually succeeded.  That keeps vscode-languageclient out of activation
 // for anyone without a language server installed, and it means a client is
-// only ever paired with the executable it was built from: restart discards the
-// old one instead of pointing it at a new path.
+// always paired with the executable resolution it was built from.
 //
 
 import {
@@ -38,6 +35,7 @@ export interface LanguageServerControllerOptions {
   reportDisabled(): void;
   reportNotFound(): void;
   reportStartError(error: unknown): void;
+  reportStopError(error: unknown): void;
 }
 
 export interface LanguageServerController {
@@ -45,11 +43,18 @@ export interface LanguageServerController {
   start(): Promise<void>;
   /** The "Macaulay2: Restart Language Server" command. */
   restart(): Promise<void>;
+  /** Apply the current enable/path settings without reloading the window. */
+  configurationChanged(): Promise<void>;
   /** Shut the server down, for deactivate(). */
   stop(): Promise<void>;
   /** For context.subscriptions. */
   dispose(): void;
 }
+
+type ClientResolution =
+  | { state: "resolved"; client: LanguageServerClient }
+  | { state: "missing" }
+  | { state: "timedOut" };
 
 export function createLanguageServerController(
   options: LanguageServerControllerOptions,
@@ -61,32 +66,33 @@ export function createLanguageServerController(
     reportDisabled,
     reportNotFound,
     reportStartError,
+    reportStopError,
   } = options;
 
-  // Undefined until a resolution succeeds and a client is built for it.
   let client: LanguageServerClient | undefined;
   let started = false;
-  // Set once a probe has conclusively come back empty, so the editor events
-  // stop asking.  Only restart() clears it, which is how a language server
-  // installed after activation gets picked up.
+  // A conclusive miss suppresses editor-driven starts until an explicit
+  // restart or configuration change invalidates the resolution.
   let missing = false;
   let pending: Promise<void> | undefined;
   let pendingToken = 0;
 
-  // Everything that touches the client goes through here, so that at most one
-  // operation is ever in flight and callers can await whatever is running.
-  // Errors are reported once and never propagate: every caller discards the
-  // result, and an unhandled rejection out of an editor event is not useful.
-  const run = (work: () => Promise<void>): Promise<void> => {
+  // Queue every lifecycle operation.  In particular, a start requested while
+  // stop() is awaiting the language client's shutdown must run afterwards; it
+  // cannot merely return the stop promise.
+  const run = (
+    work: () => Promise<void>,
+    report: (error: unknown) => void = reportStartError,
+  ): Promise<void> => {
+    const previous = pending;
     const token = ++pendingToken;
     const task = (async () => {
       try {
+        if (previous) await previous;
         await work();
       } catch (error) {
-        reportStartError(error);
+        report(error);
       } finally {
-        // A restart that took the slot over while this was settling must keep
-        // it, or a concurrent start would see an idle controller.
         if (pendingToken === token) pending = undefined;
       }
     })();
@@ -95,88 +101,146 @@ export function createLanguageServerController(
     return task;
   };
 
-  // Resolves the executable and builds a client for it, recording a conclusive
-  // "not installed" so the editor events stop asking.  A probe that merely
-  // timed out is not conclusive: the next attempt should look again.
-  const resolveClient = async () => {
+  const resolveClient = async (): Promise<ClientResolution> => {
     const probe = resolver.resolve();
     if (!probe.resolution) {
-      missing = !probe.timedOut;
-      return undefined;
+      if (probe.timedOut) {
+        missing = false;
+        return { state: "timedOut" };
+      }
+
+      missing = true;
+      return { state: "missing" };
     }
 
-    return await createClient(probe.resolution);
+    missing = false;
+    return {
+      state: "resolved",
+      client: await createClient(probe.resolution),
+    };
   };
 
-  // Tear down whatever is running, leaving the controller as if it had never
-  // started.  Used before building a client for a new resolution, and by
-  // stop() on deactivate.
   const discardClient = async () => {
     const running = client;
     client = undefined;
     started = false;
     if (!running) return;
 
-    await running.stop();
-    await running.dispose();
-  };
-
-  const start = () => {
-    if (started || missing || !isEnabled()) return Promise.resolve();
-    if (pending) return pending;
-
-    return run(async () => {
-      const resolved = await resolveClient();
-      if (!resolved) return;
-
-      client = resolved;
-      await resolved.start();
-      started = true;
-    });
-  };
-
-  const restart = () => {
-    if (!isEnabled()) {
-      reportDisabled();
-      return Promise.resolve();
+    let failure: { error: unknown } | undefined;
+    try {
+      await running.stop();
+    } catch (error) {
+      failure = { error };
     }
 
-    const previous = pending;
-    return run(async () => {
-      // run() never rejects, so this cannot throw.
-      if (previous) await previous;
+    try {
+      await running.dispose();
+    } catch (error) {
+      // Preserve the stop failure when both cleanup operations fail.
+      failure ??= { error };
+    }
 
-      // The one place worth paying for a fresh probe: it is how someone who
-      // has just installed the language server gets it running without
-      // reloading the window.
-      resolver.forget();
-      missing = false;
+    if (failure) throw failure.error;
+  };
 
-      // Drop the old client before resolving.  Its executable path is baked
-      // in, so it cannot be reused if the resolution has moved, and leaving it
-      // running while reporting "not found" would be a lie.
+  const startClient = async (candidate: LanguageServerClient) => {
+    client = candidate;
+    try {
+      await candidate.start();
+      started = true;
+    } catch (error) {
+      client = undefined;
+      started = false;
+      try {
+        await candidate.dispose();
+      } catch {
+        // Preserve the start failure for the user; disposal is best effort.
+      }
+      throw error;
+    }
+  };
+
+  const discardClientAndReport = async (): Promise<boolean> => {
+    try {
       await discardClient();
+      return true;
+    } catch (error) {
+      reportStopError(error);
+      return false;
+    }
+  };
+
+  // Build the replacement before stopping a healthy client.  A timeout (or a
+  // failure to load/build the new client) therefore leaves the running server
+  // alone.  A conclusive miss still tears it down before reporting the result.
+  const replaceClient = async (announceMissing: boolean) => {
+    const resolved = await resolveClient();
+    if (resolved.state === "timedOut") return;
+
+    if (resolved.state === "missing") {
+      if (!(await discardClientAndReport())) return;
+      if (announceMissing) reportNotFound();
+      return;
+    }
+
+    if (!(await discardClientAndReport())) {
+      // Resolution creates a candidate before touching the healthy client so
+      // load failures preserve it.  If old-client teardown fails, the unused
+      // candidate still needs to be released.
+      try {
+        await resolved.client.dispose();
+      } catch {
+        // Preserve the shutdown failure already reported above.
+      }
+      return;
+    }
+    await startClient(resolved.client);
+  };
+
+  const start = () =>
+    run(async () => {
+      if (started || missing || !isEnabled()) return;
 
       const resolved = await resolveClient();
-      if (!resolved) {
-        reportNotFound();
+      if (resolved.state !== "resolved") return;
+      await startClient(resolved.client);
+    });
+
+  const restart = () =>
+    run(async () => {
+      if (!isEnabled()) {
+        reportDisabled();
         return;
       }
 
-      client = resolved;
-      await resolved.start();
-      started = true;
+      resolver.forget();
+      missing = false;
+      await replaceClient(true);
     });
-  };
 
-  const stop = async () => {
-    if (pending) await pending;
-    await discardClient();
-  };
+  const configurationChanged = () =>
+    run(async () => {
+      // Either setting can make the cached resolution stale.  Clearing it here
+      // also lets re-enabling discover a server installed while disabled.
+      resolver.forget();
+      missing = false;
+
+      if (!isEnabled()) {
+        await discardClientAndReport();
+        return;
+      }
+
+      // Setting changes are already visible user actions, but a missing server
+      // remains silent here just as it is for editor-driven start().
+      await replaceClient(false);
+    });
+
+  const stop = () => run(discardClient, reportStopError);
 
   return {
     start,
     restart,
+    configurationChanged,
     stop,
     dispose() {
       void stop();

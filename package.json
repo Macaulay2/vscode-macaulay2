@@ -26,32 +26,39 @@
 		"commands": [
 			{
 				"command": "macaulay2.startREPL",
-				"title": "Start M2 REPL"
+				"title": "Start M2 REPL",
+				"category": "Macaulay2"
 			},
 			{
 				"command": "macaulay2.startTerminal",
-				"title": "Start M2 Terminal"
+				"title": "Start M2 Terminal",
+				"category": "Macaulay2"
 			},
 			{
 				"command": "macaulay2.sendToWebview",
-				"title": "Send Line or Selection to Macaulay2 Webview"
+				"title": "Send Line or Selection to Macaulay2 Webview",
+				"category": "Macaulay2"
 			},
 			{
 				"command": "macaulay2.sendToTerminal",
-				"title": "Send Line or Selection to Macaulay2 Terminal"
+				"title": "Send Line or Selection to Macaulay2 Terminal",
+				"category": "Macaulay2"
 			},
 			{
 				"command": "macaulay2.runFile",
 				"title": "Run Macaulay2 File",
+				"category": "Macaulay2",
 				"icon": "$(play)"
 			},
 			{
 				"command": "macaulay2.interruptREPL",
-				"title": "Interrupt M2 Computation"
+				"title": "Interrupt M2 Computation",
+				"category": "Macaulay2"
 			},
 			{
 				"command": "macaulay2.selectExecutablePath",
-				"title": "Select M2 Executable"
+				"title": "Select M2 Executable",
+				"category": "Macaulay2"
 			},
 			{
 				"command": "macaulay2.restartLanguageServer",
@@ -103,6 +110,12 @@
 					"default": true,
 					"description": "Enable the Macaulay2 Language Server for enhanced language support (hover, signature help, etc.). Requires M2-language-server to be installed.",
 					"scope": "window"
+				},
+				"macaulay2.languageServerPath": {
+					"type": "string",
+					"default": "",
+					"description": "Absolute path to the M2-language-server executable. Leave empty to detect it automatically. On Windows, a Unix path is launched through the default WSL distribution.",
+					"scope": "machine-overridable"
 				},
 				"macaulay2.executablePath": {
 					"type": "string",

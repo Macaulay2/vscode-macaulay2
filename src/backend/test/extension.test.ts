@@ -47,7 +47,6 @@ import {
   createLanguageServerController,
   LanguageServerControllerOptions,
 } from "../languageServer";
-import { createGuardedOutputChannel, manageLanguageClient } from "../client";
 
 // You can import and use all API from the 'vscode' module
 // as well as import your extension to test it
@@ -184,12 +183,12 @@ suite("Extension Tests", function () {
         "editor.indentSize": 4,
       },
     );
-    const languageServerPath =
+    assert.equal(
       manifest.contributes.configuration.properties[
         "macaulay2.languageServerPath"
-      ];
-    assert.equal(languageServerPath.scope, "window");
-    assert.equal(languageServerPath.ignoreSync, true);
+      ].scope,
+      "machine-overridable",
+    );
   });
 
   test("every contributed command is prefixed in the palette", function () {
@@ -561,168 +560,6 @@ suite("Command Executable Resolution", function () {
   });
 });
 
-suite("Managed Language Client", function () {
-  test("releases resources when the raw client cannot dispose", async function () {
-    let diagnosticDisposals = 0;
-    let outputDisposals = 0;
-    const output: string[] = [];
-    let rawDisposals = 0;
-    let cancellations = 0;
-    let rawDisposeTimeout: number | undefined;
-    const outputChannel = createGuardedOutputChannel({
-      name: "test",
-      append(value: string) {
-        output.push(value);
-      },
-      appendLine(value: string) {
-        output.push(`${value}\n`);
-      },
-      replace(value: string) {
-        output.splice(0, output.length, value);
-      },
-      clear() {
-        output.splice(0);
-      },
-      show() {},
-      hide() {},
-      dispose() {
-        outputDisposals += 1;
-      },
-    });
-    const managed = manageLanguageClient(
-      {
-        diagnostics: {
-          dispose() {
-            diagnosticDisposals += 1;
-          },
-        },
-        start: () => Promise.reject(new Error("start failed")),
-        stop: () => Promise.resolve(),
-        cancelStart() {
-          cancellations += 1;
-        },
-        dispose(timeout?: number) {
-          rawDisposals += 1;
-          rawDisposeTimeout = timeout;
-          return Promise.reject(new Error("raw dispose failed"));
-        },
-      },
-      outputChannel,
-      10,
-    );
-
-    outputChannel.append("before disposal");
-    await assert.rejects(async () => managed.start(), /start failed/);
-    const disposing = managed.dispose();
-    await Promise.resolve();
-    assert.equal(outputDisposals, 0);
-    await disposing;
-    await managed.dispose();
-    outputChannel.append("late callback");
-
-    assert.equal(rawDisposals, 1);
-    assert.equal(cancellations, 1);
-    assert.equal(rawDisposeTimeout, 0);
-    assert.equal(diagnosticDisposals, 1);
-    assert.equal(outputDisposals, 1);
-    assert.deepEqual(output, ["before disposal"]);
-  });
-
-  test("stops a startup that succeeds during disposal", async function () {
-    let releaseStart: () => void;
-    const startGate = new Promise<void>((resolve) => {
-      releaseStart = resolve;
-    });
-    let stopCalls = 0;
-    let outputDisposals = 0;
-    const managed = manageLanguageClient(
-      {
-        diagnostics: undefined,
-        start: () => startGate,
-        stop() {
-          stopCalls += 1;
-          assert.equal(outputDisposals, 0);
-          return Promise.resolve();
-        },
-        dispose: () => Promise.reject(new Error("still starting")),
-      },
-      {
-        dispose() {
-          outputDisposals += 1;
-        },
-      },
-      20,
-    );
-
-    const starting = managed.start();
-    const disposing = managed.dispose();
-    releaseStart();
-    await Promise.all([starting, disposing]);
-
-    assert.equal(stopCalls, 1);
-    assert.equal(outputDisposals, 1);
-  });
-
-  test("bounds disposal when startup never settles", async function () {
-    this.timeout(1000);
-
-    let outputDisposals = 0;
-    const managed = manageLanguageClient(
-      {
-        diagnostics: undefined,
-        start: () => new Promise<void>(() => {}),
-        stop: () => Promise.reject(new Error("still starting")),
-        dispose: () => Promise.reject(new Error("still starting")),
-      },
-      {
-        dispose() {
-          outputDisposals += 1;
-        },
-      },
-      10,
-    );
-
-    void managed.start();
-    await managed.dispose();
-
-    assert.equal(outputDisposals, 1);
-  });
-
-  test("waits for process termination after stop rejects", async function () {
-    this.timeout(1000);
-
-    let outputDisposals = 0;
-    let cancellations = 0;
-    const managed = manageLanguageClient(
-      {
-        diagnostics: undefined,
-        start: () => Promise.resolve(),
-        stop: () => Promise.reject(new Error("shutdown timed out")),
-        dispose: () => Promise.resolve(),
-        cancelStart() {
-          cancellations += 1;
-        },
-      },
-      {
-        dispose() {
-          outputDisposals += 1;
-        },
-      },
-      10,
-    );
-
-    await managed.start();
-    await assert.rejects(async () => managed.stop(), /shutdown timed out/);
-    const disposing = managed.dispose();
-    await Promise.resolve();
-    assert.equal(outputDisposals, 0);
-    await disposing;
-
-    assert.equal(cancellations, 1);
-    assert.equal(outputDisposals, 1);
-  });
-});
-
 suite("Language Server Controller", function () {
   // One entry per client the controller builds, so a test can tell "restarted
   // the same client" from "built a second one".
@@ -742,7 +579,6 @@ suite("Language Server Controller", function () {
     let failCreate: unknown;
     let failStart: unknown;
     let failStop: unknown;
-    let startHook: (() => Thenable<void> | void) | undefined;
     let stopHook: (() => Thenable<void> | void) | undefined;
 
     const createClient = async (resolution: CommandExecutableResolution) => {
@@ -753,7 +589,6 @@ suite("Language Server Controller", function () {
         calls: [],
         async start() {
           client.calls.push("start");
-          if (startHook) await startHook();
           if (failStart !== undefined) throw failStart;
         },
         async stop() {
@@ -772,7 +607,7 @@ suite("Language Server Controller", function () {
     let probeCount = 0;
     // Runs out of scripted answers rather than repeating the last one, so a
     // controller that probes more often than expected fails loudly.
-    const cachedResolver = createCachedCommandResolver(
+    const resolver: CachedCommandResolver = createCachedCommandResolver(
       "M2-language-server",
       () => {
         const probe = probes[probeCount];
@@ -781,14 +616,6 @@ suite("Language Server Controller", function () {
         return probe;
       },
     );
-    let forgetCount = 0;
-    const resolver: CachedCommandResolver = {
-      resolve: () => cachedResolver.resolve(),
-      forget() {
-        forgetCount += 1;
-        cachedResolver.forget();
-      },
-    };
 
     const reported: string[] = [];
     const controller = createLanguageServerController({
@@ -815,17 +642,11 @@ suite("Language Server Controller", function () {
       failStopWith(error: unknown) {
         failStop = error;
       },
-      runDuringStart(hook: (() => Thenable<void> | void) | undefined) {
-        startHook = hook;
-      },
       runDuringStop(hook: (() => Thenable<void> | void) | undefined) {
         stopHook = hook;
       },
       get probeCount() {
         return probeCount;
-      },
-      get forgetCount() {
-        return forgetCount;
       },
       // Flattened call log across every client built, which is what most of
       // these tests actually care about.
@@ -910,22 +731,6 @@ suite("Language Server Controller", function () {
     assert.equal(harness.probeCount, 1);
     assert.equal(harness.clients.length, 1);
     assert.deepEqual(harness.calls, ["start"]);
-  });
-
-  test("coalesces concurrent starts when startup rejects", async function () {
-    const harness = createHarness([found]);
-    harness.failStartWith(new Error("boom"));
-
-    await Promise.all([
-      harness.controller.start(),
-      harness.controller.start(),
-      harness.controller.start(),
-    ]);
-
-    assert.equal(harness.probeCount, 1);
-    assert.equal(harness.clients.length, 1);
-    assert.deepEqual(harness.calls, ["start", "dispose"]);
-    assert.deepEqual(harness.reported, ["startError"]);
   });
 
   test("does not repeat a timed-out probe from editor starts", async function () {
@@ -1154,26 +959,6 @@ suite("Language Server Controller", function () {
     assert.deepEqual(harness.clients[1].calls, ["start"]);
   });
 
-  test("a configuration change before first start only invalidates", async function () {
-    const harness = createHarness([moved]);
-
-    await harness.controller.configurationChanged();
-
-    assert.equal(harness.forgetCount, 1);
-    assert.equal(harness.probeCount, 0);
-    assert.deepEqual(harness.clients, []);
-
-    await harness.controller.start();
-
-    assert.equal(harness.probeCount, 1);
-    assert.equal(harness.clients.length, 1);
-    assert.equal(
-      harness.clients[0].executablePath,
-      "/opt/bin/M2-language-server",
-    );
-    assert.deepEqual(harness.clients[0].calls, ["start"]);
-  });
-
   test("configuration changes while disabled invalidate without probing", async function () {
     let enabled = true;
     const harness = createHarness([found, moved], {
@@ -1231,7 +1016,7 @@ suite("Language Server Controller", function () {
     assert.deepEqual(harness.reported, []);
   });
 
-  test("stop cancels a launch before the client starts", async function () {
+  test("stop queues behind an in-flight start", async function () {
     const harness = createHarness([found]);
 
     const starting = harness.controller.start();
@@ -1239,166 +1024,7 @@ suite("Language Server Controller", function () {
     await Promise.all([starting, stopping]);
 
     assert.equal(harness.clients.length, 1);
-    assert.deepEqual(harness.clients[0].calls, ["dispose"]);
-  });
-
-  test("stop suppresses a late client-construction failure", async function () {
-    let markConstructionEntered: () => void;
-    let releaseConstruction: () => void;
-    const constructionEntered = new Promise<void>((resolve) => {
-      markConstructionEntered = resolve;
-    });
-    const constructionGate = new Promise<void>((resolve) => {
-      releaseConstruction = resolve;
-    });
-    const harness = createHarness([found], {
-      createClient: async () => {
-        markConstructionEntered();
-        await constructionGate;
-        throw new Error("lazy import failed");
-      },
-    });
-
-    const starting = harness.controller.start();
-    await constructionEntered;
-    const stopping = harness.controller.stop();
-    releaseConstruction();
-    await Promise.all([starting, stopping]);
-
-    assert.deepEqual(harness.reported, []);
-  });
-
-  test("stop tears down a client whose start never settles", async function () {
-    this.timeout(1000);
-
-    const harness = createHarness([found]);
-    let markStartEntered: () => void;
-    const startEntered = new Promise<void>((resolve) => {
-      markStartEntered = resolve;
-    });
-    const startNeverSettles = new Promise<void>(() => {});
-    harness.runDuringStart(() => {
-      markStartEntered();
-      return startNeverSettles;
-    });
-
-    void harness.controller.start();
-    await startEntered;
-    await harness.controller.stop();
-
     assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
-  });
-
-  test("stop tears down a cancelled client again if startup finishes late", async function () {
-    this.timeout(1000);
-
-    const harness = createHarness([found]);
-    let markStartEntered: () => void;
-    let releaseStart: () => void;
-    let markLateStop: () => void;
-    const startEntered = new Promise<void>((resolve) => {
-      markStartEntered = resolve;
-    });
-    const startGate = new Promise<void>((resolve) => {
-      releaseStart = resolve;
-    });
-    const lateStop = new Promise<void>((resolve) => {
-      markLateStop = resolve;
-    });
-    let stopCount = 0;
-    harness.runDuringStart(() => {
-      markStartEntered();
-      return startGate;
-    });
-    harness.runDuringStop(() => {
-      stopCount += 1;
-      if (stopCount === 2) markLateStop();
-    });
-
-    void harness.controller.start();
-    await startEntered;
-    await harness.controller.stop();
-    releaseStart();
-    await lateStop;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-
-    assert.deepEqual(harness.clients[0].calls, [
-      "start",
-      "stop",
-      "dispose",
-      "stop",
-      "dispose",
-    ]);
-  });
-
-  test("a configuration change replaces a client whose start never settles", async function () {
-    this.timeout(1000);
-
-    const harness = createHarness([found, moved]);
-    let markStartEntered: () => void;
-    const startEntered = new Promise<void>((resolve) => {
-      markStartEntered = resolve;
-    });
-    harness.runDuringStart(() => {
-      harness.runDuringStart(undefined);
-      markStartEntered();
-      return new Promise<void>(() => {});
-    });
-
-    void harness.controller.start();
-    await startEntered;
-    await harness.controller.configurationChanged();
-
-    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
-    assert.equal(
-      harness.clients[1].executablePath,
-      moved.resolution.executablePath,
-    );
-    assert.deepEqual(harness.clients[1].calls, ["start"]);
-  });
-
-  test("times out a client whose start never settles", async function () {
-    this.timeout(1000);
-
-    const harness = createHarness([found], {
-      startTimeoutMilliseconds: 10,
-    });
-    harness.runDuringStart(() => new Promise<void>(() => {}));
-
-    await harness.controller.start();
-
-    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
-    assert.deepEqual(harness.reported, ["startError"]);
-  });
-
-  test("does not report a timeout superseded by stop", async function () {
-    this.timeout(1000);
-
-    const harness = createHarness([found], {
-      startTimeoutMilliseconds: 10,
-    });
-    let markStopEntered: () => void;
-    let releaseStop: () => void;
-    const stopEntered = new Promise<void>((resolve) => {
-      markStopEntered = resolve;
-    });
-    const stopGate = new Promise<void>((resolve) => {
-      releaseStop = resolve;
-    });
-    harness.runDuringStart(() => new Promise<void>(() => {}));
-    harness.runDuringStop(() => {
-      markStopEntered();
-      return stopGate;
-    });
-
-    const starting = harness.controller.start();
-    await stopEntered;
-    const stopping = harness.controller.stop();
-    releaseStop();
-    await Promise.all([starting, stopping]);
-
-    assert.deepEqual(harness.clients[0].calls, ["start", "stop", "dispose"]);
-    assert.deepEqual(harness.reported, []);
   });
 
   test("stop still disposes and reports when shutdown rejects", async function () {

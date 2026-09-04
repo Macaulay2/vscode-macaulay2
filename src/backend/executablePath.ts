@@ -108,6 +108,46 @@ export function createCachedCommandResolver(
   };
 }
 
+/**
+ * Resolve a command, letting a configured path win outright.
+ *
+ * Mirrors how resolveM2Executable treats macaulay2.executablePath: the path is
+ * taken as given rather than checked, with a Unix path on Windows launched
+ * through WSL.  A wrong path therefore surfaces as a start failure naming the
+ * path instead of silently falling back to auto-detection.
+ */
+export function probeConfiguredCommand(
+  configuredPath: string | undefined,
+  command: string,
+  probe: (command: string) => CommandProbe = probeCommandExecutable,
+  platform: NodeJS.Platform = process.platform,
+  findWsl: () => string | undefined = findWslExecutable,
+): CommandProbe {
+  const configured = configuredPath?.trim();
+  if (configured) {
+    if (platform === "win32" && isUnixAbsolutePath(configured)) {
+      const wslPath = findWsl();
+      if (wslPath) {
+        return {
+          resolution: {
+            executablePath: wslPath,
+            source: "setting via WSL",
+            args: ["--exec", configured],
+          },
+          timedOut: false,
+        };
+      }
+    }
+
+    return {
+      resolution: { executablePath: configured, source: "setting" },
+      timedOut: false,
+    };
+  }
+
+  return probe(command);
+}
+
 export function resolveCommandExecutable(
   command: string,
 ): CommandExecutableResolution | undefined {

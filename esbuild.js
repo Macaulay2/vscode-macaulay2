@@ -17,6 +17,7 @@ async function build() {
     const testCtx = await esbuild.context({
       ...baseConfig,
       entryPoints: {
+        "client.test": "src/backend/test/client.test.ts",
         "extension.test": "src/backend/test/extension.test.ts",
         "grammar.test": "src/backend/test/grammar.test.ts",
         "outputLayout.test": "src/webview/test/outputLayout.test.ts",
@@ -27,7 +28,13 @@ async function build() {
       target: "node18",
       // vscode-oniguruma loads onig.wasm relative to its own location, so it
       // has to stay in node_modules rather than being bundled.
-      external: ["vscode", "vscode-textmate", "vscode-oniguruma"],
+      external: [
+        "vscode",
+        "vscode-textmate",
+        "vscode-oniguruma",
+        // The test server resolves its own JSON-RPC module in a child process.
+        "vscode-jsonrpc/package.json",
+      ],
     });
 
     if (watch) {

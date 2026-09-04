@@ -13,6 +13,9 @@
 //
 
 import {
+  CloseAction,
+  ErrorAction,
+  ErrorHandler,
   Executable,
   LanguageClient,
   LanguageClientOptions,
@@ -98,14 +101,138 @@ function terminateChildProcess(child: ChildProcess) {
   }
 }
 
-class CancellableLanguageClient extends LanguageClient {
+export class CancellableLanguageClient extends LanguageClient {
   private cancellationRequested = false;
   private ownedServerProcess: ChildProcess | undefined;
+  private pendingStartup: Promise<void> | undefined;
+  private readonly pendingWrites = new Set<Promise<void>>();
+
+  constructor(
+    id: string,
+    name: string,
+    serverOptions: ServerOptions,
+    clientOptions: LanguageClientOptions,
+  ) {
+    super(id, name, serverOptions, {
+      ...clientOptions,
+      // Let start() reject to the controller instead of showing a separate
+      // initialization notification (including during intentional cancellation).
+      initializationFailedHandler: () => false,
+    });
+  }
+
+  start(): Promise<void> {
+    if (this.cancellationRequested) {
+      return Promise.reject(new Error("Language server start was cancelled."));
+    }
+    const startup = super.start();
+    this.pendingStartup = startup;
+    return startup.finally(async () => {
+      if (this.pendingStartup === startup) this.pendingStartup = undefined;
+      if (this.cancellationRequested && this.isRunning()) {
+        // A transport can finish starting after the bounded stop below has
+        // returned. Its registrations still need a final graceful cleanup.
+        try {
+          await super.stop();
+        } catch {
+          this.terminateServerProcess();
+        }
+      }
+    });
+  }
+
+  async stop(timeout?: number): Promise<void> {
+    const startup = this.pendingStartup;
+    if (startup) {
+      // v9 reports Running before its initialized notification has finished
+      // writing. Stopping at that point clears features too early: initialize
+      // can still install providers and listeners afterwards.
+      let graceHandle: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const settled = await Promise.race([
+          startup.then(
+            () => true,
+            () => true,
+          ),
+          new Promise<boolean>((resolve) => {
+            graceHandle = setTimeout(
+              () => resolve(false),
+              PROCESS_TERMINATION_GRACE_MILLISECONDS,
+            );
+          }),
+        ]);
+        if (!settled) {
+          this.terminateServerProcess();
+          return;
+        }
+      } finally {
+        if (graceHandle !== undefined) clearTimeout(graceHandle);
+      }
+
+      // doInitialize also calls stop() without observing its promise when
+      // initialization fails. A failed or still-pending start cannot use the
+      // library's normal stop API; disposal owns forced process cleanup.
+      if (!this.isRunning()) return;
+    }
+
+    try {
+      await super.stop(timeout);
+    } catch (error) {
+      if (!this.cancellationRequested) throw error;
+      this.terminateServerProcess();
+    }
+  }
+
+  createDefaultErrorHandler(maxRestartCount?: number): ErrorHandler {
+    const handler = super.createDefaultErrorHandler(maxRestartCount);
+    return {
+      error: (error, message, count) =>
+        this.cancellationRequested
+          ? { action: ErrorAction.Continue, handled: true }
+          : handler.error(error, message, count),
+      closed: async () => {
+        if (!this.cancellationRequested) return handler.closed();
+
+        // The base close handler has already disposed the connection, allowing
+        // initialize to reject. Wait before it clears _onStart, otherwise v9
+        // can orphan that rejected promise and attempt an unwanted restart.
+        await this.pendingStartup?.catch(() => {});
+        return { action: CloseAction.DoNotRestart, handled: true };
+      },
+    };
+  }
+
+  error(message: string, data?: unknown, showNotification?: boolean | "force") {
+    super.error(
+      message,
+      data,
+      this.cancellationRequested ? false : showNotification,
+    );
+  }
 
   cancelStart() {
     this.cancellationRequested = true;
     this.captureServerProcess();
-    this.terminateServerProcess();
+    // Once initialize has replied, allow the initialized write to finish so
+    // stop can clean up its registrations. A hung handshake is killed now;
+    // a hung initialized write is killed by stop's bounded wait above.
+    if (!this.pendingStartup || !this.isRunning()) {
+      this.terminateAfterWrites();
+    }
+  }
+
+  private terminateAfterWrites() {
+    if (this.pendingWrites.size === 0) {
+      this.terminateServerProcess();
+      return;
+    }
+
+    // JSON-RPC 8 can leak a rejection if the initialize request's write fails.
+    // Let queued bytes flush before closing the pipes; stop's grace period
+    // still bounds termination if a write never completes.
+    void Promise.allSettled([...this.pendingWrites]).then(() => {
+      this.terminateAfterWrites();
+    });
   }
 
   protected async createMessageTransports(
@@ -118,6 +245,14 @@ class CancellableLanguageClient extends LanguageClient {
         this.terminateServerProcess();
         throw new Error("Language server start was cancelled.");
       }
+      const write = transports.writer.write.bind(transports.writer);
+      transports.writer.write = (message) => {
+        const pending = write(message);
+        this.pendingWrites.add(pending);
+        const remove = () => this.pendingWrites.delete(pending);
+        void pending.then(remove, remove);
+        return pending;
+      };
       return transports;
     } catch (error) {
       this.captureServerProcess();
@@ -227,23 +362,21 @@ export function manageLanguageClient(
       startPending = true;
       try {
         const result = client.start();
-        startCleanup = Promise.resolve(result)
-          .then(
-            async () => {
-              if (!disposalRequested) return;
-              try {
-                await client.stop();
-              } catch {
-                // dispose(0) already scheduled forced process termination.
-              }
-            },
-            () => {
-              // The controller reports the original start failure.
-            },
-          )
-          .finally(() => {
+        startCleanup = Promise.resolve(result).then(
+          async () => {
             startPending = false;
-          });
+            if (!disposalRequested) return;
+            try {
+              await client.stop();
+            } catch {
+              // dispose(0) already scheduled forced process termination.
+            }
+          },
+          () => {
+            startPending = false;
+            // The controller reports the original start failure.
+          },
+        );
         return result;
       } catch (error) {
         startPending = false;
@@ -251,6 +384,9 @@ export function manageLanguageClient(
       }
     },
     async stop() {
+      // Mark cancellation before stop waits for initialize. Waiting until
+      // dispose would leave a hung handshake blocking the controller's queue.
+      if (startPending) client.cancelStart?.();
       try {
         await client.stop();
       } catch (error) {

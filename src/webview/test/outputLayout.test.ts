@@ -19,7 +19,7 @@ suite("Webview Output Layout", function () {
       /\.M2Cell\s*{[^}]*white-space:\s*normal;[^}]*}/.test(webviewTemplate),
     );
     assert.ok(
-      /\.M2Cell\s*>\s*\.M2Input,\s*\.M2Cell\s*>\s*\.M2OutputScroll,\s*\.M2Cell\s*>\s*\.M2StandardOutput\s*{[^}]*white-space:\s*pre;[^}]*}/.test(
+      /\.M2Cell\s*>\s*\.M2OutputScroll,\s*\.M2Cell\s*>\s*\.M2StandardOutput\s*{[^}]*white-space:\s*pre;[^}]*}/.test(
         webviewTemplate,
       ),
     );

@@ -29,6 +29,7 @@ import type { OutputChannel, ViewColumn } from "vscode";
 
 import { CommandExecutableResolution } from "./executablePath";
 import type { LanguageServerClient } from "./languageServer";
+import { createLanguageServerUriConverters } from "./languageServerUris";
 
 interface DisposableResource {
   dispose(): unknown;
@@ -465,6 +466,7 @@ export function createLanguageClient(
       { scheme: "untitled", language: "macaulay2" },
     ],
     outputChannel,
+    uriConverters: createLanguageServerUriConverters(resolution),
   };
 
   try {

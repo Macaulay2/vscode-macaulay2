@@ -441,9 +441,7 @@ suite("TextMate Grammars", () => {
     });
 
     test("//// is an escape, not a terminator", async () => {
-      // Inside a /// string a literal slash is written ////, so a run of four
-      // must not end the string.  Runs of five or more are not handled, which
-      // matches the comment on the rule.
+      // An even slash run represents literal content and must not end the string.
       const source = "s = /// a //// b /// + 1";
 
       assert.strictEqual(
@@ -459,6 +457,43 @@ suite("TextMate Grammars", () => {
         await scopeOf(source, "+"),
         "keyword.operator.macaulay2",
       );
+    });
+
+    test("empty and slash-suffixed strings leave subsequent code outside the string", async () => {
+      for (const prefix of ["s = ", "doc ", "TEST "]) {
+        for (const content of ["", "foo", "foo//", "foo////", "foo//////"]) {
+          const source = `${prefix}///${content}///; matrix {}\nZZ`;
+          assert.strictEqual(
+            await scopeOf(source, "matrix"),
+            "support.function.macaulay2",
+            source,
+          );
+          assert.strictEqual(
+            await scopeOf(source, "ZZ"),
+            "entity.name.type.macaulay2",
+            source,
+          );
+        }
+      }
+    });
+
+    test("even slash runs remain inside a raw string", async () => {
+      for (const length of [4, 6, 8, 10]) {
+        const slashes = "/".repeat(length);
+        const source = `s = ///a ${slashes} b ///; matrix {}`;
+        assert.strictEqual(
+          await scopeOf(source, slashes),
+          "constant.character.escape.macaulay2",
+        );
+        assert.strictEqual(
+          await scopeOf(source, "b"),
+          "string.quoted.other.tripleslash.macaulay2",
+        );
+        assert.strictEqual(
+          await scopeOf(source, "matrix"),
+          "support.function.macaulay2",
+        );
+      }
     });
 
     test("TEST /// holds real Macaulay2 code", async () => {

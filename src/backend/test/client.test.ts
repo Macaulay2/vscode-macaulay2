@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import * as path from "path";
 import type { ChildProcess } from "child_process";
-import { languages, window } from "vscode";
+import { languages, window, Uri } from "vscode";
 import type { Disposable } from "vscode";
 import type { MessageTransports } from "vscode-languageclient/node";
 
@@ -11,6 +11,89 @@ import {
   manageLanguageClient,
 } from "../client";
 import { createLanguageServerController } from "../languageServer";
+import { createLanguageServerUriConverters } from "../languageServerUris";
+
+suite("WSL language server URI conversion", () => {
+  const converters = createLanguageServerUriConverters({
+    executablePath: "C:\\Windows\\System32\\wsl.exe",
+    source: "WSL",
+    wslExecutablePath: "/usr/bin/M2-language-server",
+    wslDistroName: "Ubuntu-24.04",
+  })!;
+
+  test("opens Linux definitions through the server's WSL distribution", () => {
+    const target = converters.protocol2Code(
+      "file:///usr/share/Macaulay2/Core/matrix.m2",
+    );
+    assert.strictEqual(target.scheme, "file");
+    assert.strictEqual(target.authority, "wsl$");
+    assert.strictEqual(
+      target.path,
+      "/Ubuntu-24.04/usr/share/Macaulay2/Core/matrix.m2",
+    );
+    assert.strictEqual(
+      converters.code2Protocol(target),
+      "file:///usr/share/Macaulay2/Core/matrix.m2",
+    );
+  });
+
+  test("maps drive files in both directions and preserves URI escaping", () => {
+    const windows = Uri.from({
+      scheme: "file",
+      path: "/C:/Users/Jane/a #β.m2",
+      query: "version=1",
+      fragment: "definition",
+    });
+    const protocol = converters.code2Protocol(windows);
+    assert.strictEqual(Uri.parse(protocol).path, "/mnt/c/Users/Jane/a #β.m2");
+    const restored = converters.protocol2Code(protocol);
+    assert.strictEqual(restored.toString(), windows.toString());
+  });
+
+  test("accepts both WSL UNC hosts without changing another distro's files", () => {
+    for (const authority of ["wsl$", "wsl.localhost"]) {
+      const file = Uri.from({
+        scheme: "file",
+        authority,
+        path: "/Ubuntu-24.04/home/jane/example.m2",
+      });
+      assert.strictEqual(
+        converters.code2Protocol(file),
+        "file:///home/jane/example.m2",
+      );
+      const otherDistro = file.with({ path: "/Debian/home/jane/example.m2" });
+      assert.strictEqual(
+        converters.code2Protocol(otherDistro),
+        otherDistro.toString(),
+      );
+    }
+  });
+
+  test("preserves untitled documents, remote URLs, and other UNC hosts", () => {
+    for (const value of [
+      "untitled:Untitled-1",
+      "https://example.org/doc",
+      "file://server/share/example.m2",
+    ]) {
+      const uri = Uri.parse(value);
+      assert.strictEqual(converters.code2Protocol(uri), uri.toString());
+      assert.strictEqual(
+        converters.protocol2Code(value).toString(),
+        uri.toString(),
+      );
+    }
+  });
+
+  test("native language servers keep the default converters", () => {
+    assert.strictEqual(
+      createLanguageServerUriConverters({
+        executablePath: "/usr/bin/M2-language-server",
+        source: "PATH",
+      }),
+      undefined,
+    );
+  });
+});
 
 function deferred() {
   let resolve: () => void;

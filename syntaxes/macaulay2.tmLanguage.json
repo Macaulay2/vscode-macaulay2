@@ -85,7 +85,7 @@
               "name": "punctuation.definition.documentation.begin.macaulay2"
             }
           },
-          "end": "(?<!/)///(?!/)",
+          "end": "/{3}(?:/{2})*(?!/)",
           "endCaptures": {
             "0": {
               "name": "punctuation.definition.documentation.end.macaulay2"
@@ -112,7 +112,7 @@
               "name": "punctuation.definition.string.begin.macaulay2"
             }
           },
-          "end": "(?<!/)///(?!/)",
+          "end": "/{3}(?:/{2})*(?!/)",
           "endCaptures": {
             "0": {
               "name": "punctuation.definition.string.end.macaulay2"
@@ -136,7 +136,7 @@
               "name": "punctuation.definition.string.begin.macaulay2"
             }
           },
-          "end": "(?<!/)///(?!/)",
+          "end": "/{3}(?:/{2})*(?!/)",
           "endCaptures": {
             "0": {
               "name": "punctuation.definition.string.end.macaulay2"
@@ -151,9 +151,9 @@
       ]
     },
     "slash-escape": {
-      "comment": "Inside a /// string a literal slash is written //// -- so a run of four is an escape rather than a terminator. Runs of five or more are not handled.",
+      "comment": "Even runs of at least four slashes encode literal slashes; odd runs of at least three terminate the string. Consume each even run before the end rule can match an odd suffix. Neither rule needs a lookbehind, so an empty string can close immediately after its opening delimiter.",
       "name": "constant.character.escape.macaulay2",
-      "match": "(?<!/)////(?!/)"
+      "match": "/{4}(?:/{2})*(?!/)"
     },
     "numbers": {
       "patterns": [

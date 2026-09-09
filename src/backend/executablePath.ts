@@ -20,6 +20,8 @@ export interface CommandExecutableResolution {
   executablePath: string;
   source: string;
   args?: string[];
+  wslExecutablePath?: string;
+  wslDistroName?: string;
 }
 
 export type M2LaunchArgsConfiguration = string | undefined;
@@ -122,6 +124,7 @@ export function probeConfiguredCommand(
   probe: (command: string) => CommandProbe = probeCommandExecutable,
   platform: NodeJS.Platform = process.platform,
   findWsl: () => string | undefined = findWslExecutable,
+  findDistro: (wslPath: string) => string | undefined = resolveWslDistroName,
 ): CommandProbe {
   const configured = configuredPath?.trim();
   if (configured) {
@@ -129,11 +132,12 @@ export function probeConfiguredCommand(
       const wslPath = findWsl();
       if (wslPath) {
         return {
-          resolution: {
-            executablePath: wslPath,
-            source: "setting via WSL",
-            args: ["--exec", configured],
-          },
+          resolution: wslCommandResolution(
+            wslPath,
+            configured,
+            "setting via WSL",
+            findDistro(wslPath),
+          ),
           timedOut: false,
         };
       }
@@ -528,15 +532,36 @@ function resolveCommandWithCygwinShell(command: string): ShellProbe {
 
 function resolveWithWsl(): M2ExecutableResolution | undefined {
   const resolved = probeCommandWithWsl("M2").resolution;
-  if (!resolved?.args || resolved.args.length < 2) {
+  if (!resolved?.wslExecutablePath) {
     return undefined;
   }
 
   return {
     executablePath: resolved.executablePath,
     source: resolved.source,
-    wslExecutablePath: resolved.args[1],
-    wslDistroName: resolveWslDistroName(resolved.executablePath),
+    wslExecutablePath: resolved.wslExecutablePath,
+    wslDistroName: resolved.wslDistroName,
+  };
+}
+
+function wslCommandResolution(
+  wslPath: string,
+  commandPath: string,
+  source: string,
+  distroName: string | undefined,
+): CommandExecutableResolution {
+  return {
+    executablePath: wslPath,
+    source,
+    // Pin the distribution used for discovery and URI conversion even if the
+    // user's default distribution changes before the client is started.
+    args: [
+      ...(distroName ? ["--distribution", distroName] : []),
+      "--exec",
+      commandPath,
+    ],
+    wslExecutablePath: commandPath,
+    wslDistroName: distroName,
   };
 }
 
@@ -544,6 +569,7 @@ export function probeCommandWithWsl(
   command: string,
   findWsl: () => string | undefined = findWslExecutable,
   run: ShellCommandRunner = runShellCommand,
+  findDistro: (wslPath: string) => string | undefined = resolveWslDistroName,
 ): CommandProbe {
   const wslPath = findWsl();
   if (!wslPath) {
@@ -561,11 +587,12 @@ export function probeCommandWithWsl(
   }
 
   return {
-    resolution: {
-      executablePath: wslPath,
-      source: "WSL",
-      args: ["--exec", wslExecutablePath],
-    },
+    resolution: wslCommandResolution(
+      wslPath,
+      wslExecutablePath,
+      "WSL",
+      findDistro(wslPath),
+    ),
     timedOut: false,
   };
 }

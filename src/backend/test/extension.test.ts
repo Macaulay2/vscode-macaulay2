@@ -479,13 +479,21 @@ suite("Command Executable Resolution", function () {
       },
       "win32",
       () => "C:\\Windows\\System32\\wsl.exe",
+      () => "Ubuntu-24.04",
     );
 
     assert.deepEqual(probe, {
       resolution: {
         executablePath: "C:\\Windows\\System32\\wsl.exe",
         source: "setting via WSL",
-        args: ["--exec", "/opt/Macaulay2/bin/M2-language-server"],
+        args: [
+          "--distribution",
+          "Ubuntu-24.04",
+          "--exec",
+          "/opt/Macaulay2/bin/M2-language-server",
+        ],
+        wslExecutablePath: "/opt/Macaulay2/bin/M2-language-server",
+        wslDistroName: "Ubuntu-24.04",
       },
       timedOut: false,
     });
@@ -525,6 +533,30 @@ suite("Command Executable Resolution", function () {
     );
 
     assert.deepEqual(result, { timedOut: true });
+  });
+
+  test("retains the discovered WSL executable and pins its distribution", function () {
+    const probe = probeCommandWithWsl(
+      "M2-language-server",
+      () => "C:\\Windows\\System32\\wsl.exe",
+      () => ({ output: "/usr/bin/M2-language-server\n", timedOut: false }),
+      () => "Debian",
+    );
+    assert.deepStrictEqual(probe, {
+      resolution: {
+        executablePath: "C:\\Windows\\System32\\wsl.exe",
+        source: "WSL",
+        args: [
+          "--distribution",
+          "Debian",
+          "--exec",
+          "/usr/bin/M2-language-server",
+        ],
+        wslExecutablePath: "/usr/bin/M2-language-server",
+        wslDistroName: "Debian",
+      },
+      timedOut: false,
+    });
   });
 
   test("propagates a WSL timeout after a conclusive Cygwin miss", function () {

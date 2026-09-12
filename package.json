@@ -7,9 +7,9 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/coreysharris/vscode-macaulay2"
+		"url": "https://github.com/Macaulay2/vscode-macaulay2"
 	},
-	"publisher": "coreysharris",
+	"publisher": "Macaulay2",
 	"engines": {
 		"vscode": "^1.100.0"
 	},
@@ -249,7 +249,7 @@
 					{
 						"id": "configureM2",
 						"title": "Configure Extension",
-						"description": "You can change the start up behavior, visual theme, and other settings.\n\n[Open Macaulay2 Settings](command:workbench.action.openSettings?%5B%22%40ext%3Acoreysharris.macaulay2%22%5D)\n\nAll keybindings can be viewed and edited.\n\n[Open Macaulay2 Keyboard Shortcuts](command:workbench.action.openGlobalKeybindings?%5B%22%40ext%3Acoreysharris.macaulay2%22%5D)",
+						"description": "You can change the start up behavior, visual theme, and other settings.\n\n[Open Macaulay2 Settings](command:workbench.action.openSettings?%5B%22%40ext%3AMacaulay2.macaulay2%22%5D)\n\nAll keybindings can be viewed and edited.\n\n[Open Macaulay2 Keyboard Shortcuts](command:workbench.action.openGlobalKeybindings?%5B%22%40ext%3AMacaulay2.macaulay2%22%5D)",
 						"media": {
 							"markdown": "walkthroughs/configure-m2.md"
 						},

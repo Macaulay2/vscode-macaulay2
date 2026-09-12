@@ -4,7 +4,7 @@
 -- Here are some sample commands:
 R = ZZ/101[a,b,c,d]
 I = ideal(a^2-b*c, a^3-b^3, a^4-b*d^3, a^5-c^2*d^3)
-grb = first entries groebnerBasis I;
+grb = first entries groebnerBasis I
 VerticalList grb 
 
 -- To open the Macaulay2 documentation for a

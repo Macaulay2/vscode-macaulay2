@@ -22,6 +22,7 @@ import {
   CommandProbe,
   createCachedCommandResolver,
   probeConfiguredCommand,
+  probeCommandExecutable,
   getM2ExecutableResolutionDetail,
   getM2LaunchConfiguration,
   M2ExecutableResolution,
@@ -29,6 +30,7 @@ import {
   probeCommandWithWsl,
   probeWindowsCommandExecutable,
   resolveM2Executable,
+  resolveBundledLanguageServer,
   runShellCommand,
   windowsPathToWslPath,
   wslPathToWindowsPath,
@@ -397,6 +399,90 @@ suite("Executable Switcher", function () {
       }),
       "$(terminal) M2: WSL:/usr/bin/M2",
     );
+  });
+});
+
+suite("Bundled Language Server Discovery", function () {
+  let directory: string;
+  let m2: string;
+  let launcher: string;
+
+  setup(function () {
+    if (process.platform === "win32") this.skip();
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), "m2 bundled server "));
+    m2 = path.join(directory, "Cellar", "macaulay2", "1.26.06", "bin", "M2");
+    launcher = path.join(path.dirname(m2), "..", "share", "Macaulay2", "LanguageServer", "M2-language-server");
+    fs.mkdirSync(path.dirname(m2), { recursive: true });
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(m2, "#!/bin/sh\nprintf 'bundled M2'\n", { mode: 0o755 });
+    fs.writeFileSync(launcher, "#!/bin/sh\nexec M2\n", { mode: 0o755 });
+  });
+
+  teardown(function () {
+    if (directory) fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  test("discovers a Homebrew package through bin/M2 and launches its matching M2", function () {
+    const bin = path.join(directory, "bin");
+    fs.mkdirSync(bin);
+    const link = path.join(bin, "M2");
+    fs.symlinkSync(path.relative(bin, m2), link);
+    const oldPath = process.env.PATH;
+    const oldShell = process.env.SHELL;
+    try {
+      process.env.PATH = bin;
+      delete process.env.SHELL;
+      const probe = probeCommandExecutable("M2-language-server");
+      assert.equal(probe.timedOut, false);
+      assert.ok(probe.resolution);
+      const resolution = probe.resolution!;
+      assert.equal(resolution.executablePath, fs.realpathSync(launcher));
+      assert.equal(resolution.source, "M2 installation");
+      const result = spawnSync(resolution.executablePath, [], {
+        env: resolution.env,
+        encoding: "utf8",
+        timeout: 2_000,
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, "bundled M2");
+
+      const pathLauncher = path.join(bin, "M2-language-server");
+      fs.writeFileSync(pathLauncher, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+      assert.deepEqual(probeCommandExecutable("M2-language-server"), {
+        resolution: { executablePath: pathLauncher, source: "PATH" },
+        timedOut: false,
+      });
+      assert.deepEqual(probeCommandExecutable("unrelated-m2-command"), { timedOut: false });
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+      if (oldShell === undefined) delete process.env.SHELL;
+      else process.env.SHELL = oldShell;
+    }
+  });
+
+  test("discovers a launcher relative to an ordinary installation", function () {
+    assert.equal(
+      resolveBundledLanguageServer({ executablePath: m2, source: "PATH" })?.executablePath,
+      fs.realpathSync(launcher),
+    );
+  });
+
+  test("ignores missing and non-executable launchers and missing M2", function () {
+    const resolution = { executablePath: m2, source: "PATH" };
+    fs.chmodSync(launcher, 0o644);
+    assert.equal(resolveBundledLanguageServer(resolution), undefined);
+    fs.unlinkSync(launcher);
+    assert.equal(resolveBundledLanguageServer(resolution), undefined);
+    fs.unlinkSync(m2);
+    assert.equal(resolveBundledLanguageServer(resolution), undefined);
+    assert.equal(resolveBundledLanguageServer(undefined), undefined);
+  });
+
+  test("does not inspect WSL paths on the local filesystem", function () {
+    assert.equal(resolveBundledLanguageServer({
+      executablePath: m2, source: "WSL", wslExecutablePath: "/usr/bin/M2",
+    }), undefined);
   });
 });
 

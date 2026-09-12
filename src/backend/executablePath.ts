@@ -20,6 +20,7 @@ export interface CommandExecutableResolution {
   executablePath: string;
   source: string;
   args?: string[];
+  env?: NodeJS.ProcessEnv;
   wslExecutablePath?: string;
   wslDistroName?: string;
 }
@@ -189,7 +190,51 @@ export function probeCommandExecutable(command: string): CommandProbe {
     };
   }
 
+  if (command === "M2-language-server") {
+    const bundled = resolveBundledLanguageServer(resolveM2Executable());
+    if (bundled) return { resolution: bundled, timedOut: false };
+  }
+
   return { timedOut: fromLoginShell.timedOut };
+}
+
+/** Homebrew can install the launcher as package data without linking it in bin. */
+export function resolveBundledLanguageServer(
+  m2: M2ExecutableResolution | undefined,
+): CommandExecutableResolution | undefined {
+  if (!m2 || m2.wslExecutablePath || !isExecutableFile(m2.executablePath)) {
+    return undefined;
+  }
+
+  let realExecutable: string;
+  try {
+    // Follow Homebrew's bin/M2 symlink into its versioned Cellar prefix.
+    realExecutable = fs.realpathSync(m2.executablePath);
+  } catch {
+    return undefined;
+  }
+
+  for (const executable of dedupe([realExecutable, m2.executablePath])) {
+    const bin = path.dirname(executable);
+    const launcher = path.join(
+      bin, "..", "share", "Macaulay2", "LanguageServer", "M2-language-server",
+    );
+    if (isExecutableFile(launcher)) {
+      return {
+        executablePath: launcher,
+        source: "M2 installation",
+        // The bundled shell script invokes M2 by name. GUI-launched VS Code
+        // may lack its bin directory even though discovery found the install.
+        env: {
+          ...process.env,
+          PATH: [path.dirname(realExecutable), process.env.PATH]
+            .filter(Boolean).join(path.delimiter),
+        },
+      };
+    }
+  }
+
+  return undefined;
 }
 
 export function probeWindowsCommandExecutable(

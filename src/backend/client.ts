@@ -456,6 +456,7 @@ export function createLanguageClient(
   const serverOptions: Executable = {
     command: resolution.executablePath,
     args: resolution.args,
+    options: resolution.env ? { env: resolution.env } : undefined,
   };
   const outputChannel = createGuardedOutputChannel(
     window.createOutputChannel("Macaulay2 Language Server"),

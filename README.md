@@ -27,8 +27,6 @@ Use `F12` or run **Macaulay2: Start M2 REPL** from the Command Palette to start 
 - Automatic `M2` executable detection on macOS and Windows, including WSL installs on Windows, with a manual override when needed.
 - Language server support via `M2-language-server` for additional editor features when installed, found automatically or pointed at with a setting.
 
-On macOS and Linux, language-server discovery also checks `share/Macaulay2/LanguageServer/M2-language-server` under the detected M2 installation, including Homebrew installations where the launcher is not linked onto `PATH`. After upgrading Macaulay2, run **Macaulay2: Restart Language Server** to repeat discovery.
-
 ![Syntax highlighting](https://user-images.githubusercontent.com/186528/54696704-990e3480-4b2c-11e9-9376-3106aa64d618.png)
 
 

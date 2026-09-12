@@ -221,10 +221,20 @@ export function resolveBundledLanguageServer(
     );
     if (isExecutableFile(launcher)) {
       return {
-        executablePath: launcher,
+        executablePath: realExecutable,
         source: "M2 installation",
-        // The bundled shell script invokes M2 by name. GUI-launched VS Code
-        // may lack its bin directory even though discovery found the install.
+        // Bootstrap the bundled package directly: its shell launcher doesn't
+        // accept extra arguments and loads init.m2, whose output corrupts LSP
+        // framing. -q keeps interactive initialization out of the server.
+        args: [
+          "-q", "--silent", "--stop",
+          "-e", "clearEcho stdio",
+          "-e", 'needsPackage "LanguageServer"',
+          "-e", "server = new LSPServer",
+          "-e", "setLogger(server, printerr)",
+          "-e", "start server",
+        ],
+        // Keep the matching installation available to package subprocesses.
         env: {
           ...process.env,
           PATH: [path.dirname(realExecutable), process.env.PATH]

@@ -414,7 +414,7 @@ suite("Bundled Language Server Discovery", function () {
     launcher = path.join(path.dirname(m2), "..", "share", "Macaulay2", "LanguageServer", "M2-language-server");
     fs.mkdirSync(path.dirname(m2), { recursive: true });
     fs.mkdirSync(path.dirname(launcher), { recursive: true });
-    fs.writeFileSync(m2, "#!/bin/sh\nprintf 'bundled M2'\n", { mode: 0o755 });
+    fs.writeFileSync(m2, '#!/bin/sh\n[ "$1" = "-q" ] || printf "Noisy user initialization\\n"\nprintf "bundled M2"\n', { mode: 0o755 });
     fs.writeFileSync(launcher, "#!/bin/sh\nexec M2\n", { mode: 0o755 });
   });
 
@@ -436,9 +436,9 @@ suite("Bundled Language Server Discovery", function () {
       assert.equal(probe.timedOut, false);
       assert.ok(probe.resolution);
       const resolution = probe.resolution!;
-      assert.equal(resolution.executablePath, fs.realpathSync(launcher));
+      assert.equal(resolution.executablePath, fs.realpathSync(m2));
       assert.equal(resolution.source, "M2 installation");
-      const result = spawnSync(resolution.executablePath, [], {
+      const result = spawnSync(resolution.executablePath, resolution.args, {
         env: resolution.env,
         encoding: "utf8",
         timeout: 2_000,
@@ -464,7 +464,7 @@ suite("Bundled Language Server Discovery", function () {
   test("discovers a launcher relative to an ordinary installation", function () {
     assert.equal(
       resolveBundledLanguageServer({ executablePath: m2, source: "PATH" })?.executablePath,
-      fs.realpathSync(launcher),
+      fs.realpathSync(m2),
     );
   });
 
@@ -483,6 +483,69 @@ suite("Bundled Language Server Discovery", function () {
     assert.equal(resolveBundledLanguageServer({
       executablePath: m2, source: "WSL", wslExecutablePath: "/usr/bin/M2",
     }), undefined);
+  });
+});
+
+suite("Bundled Language Server Protocol", function () {
+  test("initializes, returns hover documentation, and shuts down with the installed M2", function () {
+    this.timeout(20_000);
+    if (process.platform === "win32") this.skip();
+    const resolution = resolveBundledLanguageServer(resolveM2Executable());
+    if (!resolution) {
+      this.skip();
+      return;
+    }
+
+    const uri = "untitled:bundled-server-test.m2";
+    const messages = [
+      { id: 1, method: "initialize", params: { capabilities: {} } },
+      { method: "initialized", params: {} },
+      { method: "textDocument/didOpen", params: {
+        textDocument: { uri, languageId: "macaulay2", version: 1, text: "ideal" },
+      } },
+      { id: 2, method: "textDocument/hover", params: {
+        textDocument: { uri }, position: { line: 0, character: 2 },
+      } },
+      { id: 3, method: "shutdown" },
+      { method: "exit" },
+    ];
+    const input = messages.map(message => {
+      const body = JSON.stringify({ jsonrpc: "2.0", ...message });
+      return `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`;
+    }).join("");
+    const result = spawnSync(resolution.executablePath, resolution.args, {
+      env: resolution.env,
+      input,
+      encoding: "utf8",
+      timeout: 15_000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+
+    // Parse the entire byte stream strictly: any startup banner or stray
+    // printed value must fail here just as it does in vscode-languageclient.
+    let output = Buffer.from(result.stdout);
+    const responses = new Map<number, any>();
+    while (output.length) {
+      const headerEnd = output.indexOf("\r\n\r\n");
+      assert.ok(headerEnd >= 0, "Incomplete LSP header");
+      const header = output.subarray(0, headerEnd).toString();
+      const length = /^Content-Length: (\d+)\r?$/m.exec(header);
+      assert.ok(length, `Invalid LSP header: ${header}`);
+      assert.ok(header.startsWith("Content-Length:"), `Unexpected stdout: ${header}`);
+      const bodyStart = headerEnd + 4;
+      const bodyEnd = bodyStart + Number(length![1]);
+      assert.ok(bodyEnd <= output.length, "Incomplete LSP response");
+      const response = JSON.parse(output.subarray(bodyStart, bodyEnd).toString());
+      assert.equal(response.error, undefined, JSON.stringify(response));
+      responses.set(response.id, response.result);
+      output = output.subarray(bodyEnd);
+    }
+    assert.equal(responses.get(1)?.capabilities.hoverProvider, true);
+    assert.equal(responses.get(2)?.contents.kind, "markdown");
+    assert.ok(responses.get(2)?.contents.value.includes("ideal"));
+    assert.ok(responses.has(3), "Missing shutdown response");
   });
 });
 

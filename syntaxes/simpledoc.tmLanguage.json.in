@@ -1,0 +1,269 @@
+{
+  "information_for_contributors": [
+    "Auto-generated for Macaulay2-@M2VERSION@. Do not modify this file manually.",
+    "Edit syntaxes/simpledoc.tmLanguage.json.in and run \"npm run update\".",
+    "Grammar reference: https://github.com/Macaulay2/M2/wiki/SimpleDoc-language-grammar",
+    "SimpleDoc follows the off-side rule: a section is a line holding nothing but a keyword, and its body is the more deeply indented lines that follow. That is expressed here with begin/while rules whose while pattern backreferences the indent captured by begin."
+  ],
+  "name": "Macaulay2 SimpleDoc",
+  "scopeName": "text.macaulay2.simpledoc",
+  "patterns": [
+    {
+      "include": "#comment-line"
+    },
+    {
+      "include": "#code-section"
+    },
+    {
+      "include": "#verbatim-section"
+    },
+    {
+      "include": "#items-section"
+    },
+    {
+      "include": "#menu-section"
+    },
+    {
+      "include": "#plain-section"
+    },
+    {
+      "include": "#prose-section"
+    },
+    {
+      "include": "#container-section"
+    },
+    {
+      "include": "#inline"
+    }
+  ],
+  "repository": {
+    "comment-line": {
+      "comment": "SimpleDoc deletes every line matching ^[[:space:]]*-- before parsing, and only those. A -- in the middle of a line is literal prose, so this is anchored.",
+      "name": "comment.line.double-dash.macaulay2",
+      "match": "^[ \\t]*--.*$"
+    },
+    "container-section": {
+      "comment": "Sections whose bodies are further sections. No begin/while: the nested keywords are matched by the root patterns anyway.",
+      "match": "^[ \\t]*(@SIMPLEDOC_CONTAINER@)[ \\t]*$",
+      "captures": {
+        "1": {
+          "name": "keyword.other.simpledoc.macaulay2"
+        }
+      }
+    },
+    "code-section": {
+      "comment": "Bodies that are Macaulay2 code -- evaluated while parsing, or run at install time.",
+      "begin": "^([ \\t]*)(@SIMPLEDOC_CODE@)[ \\t]*$",
+      "beginCaptures": {
+        "2": {
+          "name": "keyword.other.simpledoc.macaulay2"
+        }
+      },
+      "while": "^(?=\\1[ \\t]|[ \\t]*$)",
+      "contentName": "meta.embedded.block.macaulay2",
+      "patterns": [
+        {
+          "include": "#comment-line"
+        },
+        {
+          "include": "source.macaulay2"
+        }
+      ]
+    },
+    "verbatim-section": {
+      "comment": "Bodies taken as raw text. Deliberately has no inner patterns beyond comments.",
+      "begin": "^([ \\t]*)(@SIMPLEDOC_VERBATIM@)[ \\t]*$",
+      "beginCaptures": {
+        "2": {
+          "name": "keyword.other.simpledoc.macaulay2"
+        }
+      },
+      "while": "^(?=\\1[ \\t]|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment-line"
+        }
+      ]
+    },
+    "plain-section": {
+      "comment": "Bodies taken as plain strings, with no inline layer.",
+      "begin": "^([ \\t]*)(@SIMPLEDOC_PLAIN@)[ \\t]*$",
+      "beginCaptures": {
+        "2": {
+          "name": "keyword.other.simpledoc.macaulay2"
+        }
+      },
+      "while": "^(?=\\1[ \\t]|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment-line"
+        }
+      ]
+    },
+    "prose-section": {
+      "comment": "TeX prose with @...@ escapes to Macaulay2.",
+      "begin": "^([ \\t]*)(@SIMPLEDOC_PROSE@)[ \\t]*$",
+      "beginCaptures": {
+        "2": {
+          "name": "keyword.other.simpledoc.macaulay2"
+        }
+      },
+      "while": "^(?=\\1[ \\t]|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment-line"
+        },
+        {
+          "include": "#inline"
+        }
+      ]
+    },
+    "items-section": {
+      "comment": "Inputs and Outputs, whose entries are \"name:Type -- abbreviation\" heads followed by an indented description.",
+      "begin": "^([ \\t]*)(@SIMPLEDOC_ITEMS@)[ \\t]*$",
+      "beginCaptures": {
+        "2": {
+          "name": "keyword.other.simpledoc.macaulay2"
+        }
+      },
+      "while": "^(?=\\1[ \\t]|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment-line"
+        },
+        {
+          "include": "#item-head"
+        },
+        {
+          "include": "#inline"
+        }
+      ]
+    },
+    "item-head": {
+      "comment": "The head is split on [[:space:]]*(:|=>)[[:space:]]* into exactly two parts. With ':' the name is a string; with '=>' it is an evaluated option name. The type is Macaulay2 code, and a trailing -- introduces the abbreviation.",
+      "match": "^[ \\t]*([A-Za-z][A-Za-z0-9'$]*)?[ \\t]*(:|=>)[ \\t]*((?:[^-]|-(?!-))*?)[ \\t]*(--.*)?$",
+      "captures": {
+        "1": {
+          "name": "variable.parameter.simpledoc.macaulay2"
+        },
+        "2": {
+          "name": "punctuation.separator.key-value.simpledoc.macaulay2"
+        },
+        "3": {
+          "name": "meta.embedded.block.macaulay2",
+          "patterns": [
+            {
+              "include": "source.macaulay2"
+            }
+          ]
+        },
+        "4": {
+          "name": "comment.line.double-dash.macaulay2"
+        }
+      }
+    },
+    "menu-section": {
+      "comment": "Subnodes and Tree. Entry prefixes are recognised by their first two characters, the space included, so \"*matrix\" is a documentation key rather than a link.",
+      "begin": "^([ \\t]*)(@SIMPLEDOC_MENU@)[ \\t]*$",
+      "beginCaptures": {
+        "2": {
+          "name": "keyword.other.simpledoc.macaulay2"
+        }
+      },
+      "while": "^(?=\\1[ \\t]|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment-line"
+        },
+        {
+          "include": "#menu-entry"
+        },
+        {
+          "include": "#inline"
+        }
+      ]
+    },
+    "menu-entry": {
+      "match": "^[ \\t]*(:|\\* |> |- )",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.list.simpledoc.macaulay2"
+        }
+      }
+    },
+    "inline": {
+      "comment": "Prose is TeX with @...@ escaping to an arbitrary Macaulay2 expression. \\@ is a literal @.",
+      "patterns": [
+        {
+          "name": "constant.character.escape.simpledoc.macaulay2",
+          "match": "\\\\@"
+        },
+        {
+          "name": "meta.embedded.line.macaulay2",
+          "begin": "(?<!\\\\)@",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.embedded.begin.macaulay2"
+            }
+          },
+          "end": "(?<!\\\\)@",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.embedded.end.macaulay2"
+            }
+          },
+          "patterns": [
+            {
+              "include": "source.macaulay2"
+            }
+          ]
+        },
+        {
+          "include": "#tex"
+        }
+      ]
+    },
+    "tex": {
+      "patterns": [
+        {
+          "name": "markup.underline.link.simpledoc.macaulay2",
+          "match": "\\\\url\\{[^}]*\\}"
+        },
+        {
+          "name": "markup.math.inline.simpledoc.macaulay2",
+          "match": "\\$\\$(?:[^$\\\\]|\\\\.)*\\$\\$|\\$(?:[^$\\\\]|\\\\.)*\\$"
+        },
+        {
+          "name": "markup.bold.simpledoc.macaulay2",
+          "begin": "\\{\\\\bf\\b",
+          "end": "\\}",
+          "patterns": [
+            {
+              "include": "#inline"
+            }
+          ]
+        },
+        {
+          "name": "markup.italic.simpledoc.macaulay2",
+          "begin": "\\{\\\\(?:em|it)\\b",
+          "end": "\\}",
+          "patterns": [
+            {
+              "include": "#inline"
+            }
+          ]
+        },
+        {
+          "name": "markup.inline.raw.simpledoc.macaulay2",
+          "begin": "\\{\\\\tt\\b",
+          "end": "\\}",
+          "patterns": [
+            {
+              "include": "#inline"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

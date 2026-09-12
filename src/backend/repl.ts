@@ -109,8 +109,9 @@ function normalizeWebviewMatrixKatexMaxEntries(value: number): number {
 export function getM2StartupPatch(
   matrixKatexMaxEntries = defaultWebviewMatrixKatexMaxEntries,
 ): string {
-  const normalizedMatrixKatexMaxEntries =
-    normalizeWebviewMatrixKatexMaxEntries(matrixKatexMaxEntries);
+  const normalizedMatrixKatexMaxEntries = normalizeWebviewMatrixKatexMaxEntries(
+    matrixKatexMaxEntries,
+  );
 
   return [
     "try (",
@@ -437,10 +438,7 @@ function processInputStreamIsWritable(child: ChildProcess): boolean {
   );
 }
 
-function postM2ProcessExitMessage(
-  code: number | null,
-  signal: string | null,
-) {
+function postM2ProcessExitMessage(code: number | null, signal: string | null) {
   if (!g_panel) return;
 
   g_panel.webview.postMessage({
@@ -892,10 +890,7 @@ function getWebviewContent(
   );
   html = html.replace("${katexAutoRenderUri}", katexAutoRenderUri.toString());
   html = html.replace(/\$\{nonce\}/g, nonce);
-  html = html.replace(
-    "${cspMeta}",
-    getWebviewCspMeta(webview, nonce),
-  );
+  html = html.replace("${cspMeta}", getWebviewCspMeta(webview, nonce));
   const completionItemsJson = JSON.stringify(completionItems).replace(
     /</g,
     "\\u003c",
@@ -964,6 +959,9 @@ function getWebviewSyntaxClass(
   if (scopeName.startsWith("keyword.")) {
     return { className: "keyword", priority: 4 };
   }
+  if (scopeName.startsWith("constant.numeric.")) {
+    return { className: "constant", priority: 3 };
+  }
   if (scopeName.startsWith("entity.name.type.")) {
     return { className: "class-name", priority: 3 };
   }
@@ -975,7 +973,15 @@ function getWebviewSyntaxClass(
   }
 }
 
-function extractWordsFromTextMateMatch(match: string): string[] | undefined {
+export const WEBVIEW_SYNTAX_REPOSITORY_KEYS = [
+  "keywords",
+  "numbers",
+  "support",
+];
+
+export function extractWordsFromTextMateMatch(
+  match: string,
+): string[] | undefined {
   const wordGroup = match.match(/\\b\(([^()]+)\)\\b$/);
   if (!wordGroup) return undefined;
 
@@ -994,10 +1000,12 @@ function getWebviewSyntax(extensionUri: vscode.Uri): WebviewSyntax {
     const grammar = JSON.parse(fs.readFileSync(grammarPath, "utf8"));
     const tokens: WebviewSyntaxToken[] = [];
     const patterns: WebviewSyntaxPattern[] = [];
-    const patternGroups = [
-      grammar.repository?.keywords?.patterns,
-      grammar.repository?.support?.patterns,
-    ];
+    // Only these repository entries hold the flat word lists and operator
+    // regexes the webview can use; the rest are begin/end rules it has no way
+    // to evaluate.
+    const patternGroups = WEBVIEW_SYNTAX_REPOSITORY_KEYS.map(
+      (key) => grammar.repository?.[key]?.patterns,
+    );
 
     patternGroups.forEach((group) => {
       if (!Array.isArray(group)) return;
@@ -2229,9 +2237,7 @@ class Macaulay2TerminalLink extends vscode.TerminalLink {
   }
 }
 
-class Macaulay2TerminalLinkProvider
-  implements vscode.TerminalLinkProvider<Macaulay2TerminalLink>
-{
+class Macaulay2TerminalLinkProvider implements vscode.TerminalLinkProvider<Macaulay2TerminalLink> {
   provideTerminalLinks(
     context: vscode.TerminalLinkContext,
     _token: vscode.CancellationToken,

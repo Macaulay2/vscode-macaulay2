@@ -2,13 +2,14 @@
 	"name": "macaulay2",
 	"displayName": "Macaulay2",
 	"description": "Macaulay2 language support",
-	"version": "0.9.1",
+	"icon": "images/icon.png",
+	"version": "1.0.0",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/coreysharris/vscode-macaulay2"
+		"url": "https://github.com/Macaulay2/vscode-macaulay2"
 	},
-	"publisher": "coreysharris",
+	"publisher": "Macaulay2",
 	"engines": {
 		"vscode": "^1.100.0"
 	},
@@ -25,32 +26,44 @@
 		"commands": [
 			{
 				"command": "macaulay2.startREPL",
-				"title": "Start M2 REPL"
+				"title": "Start M2 REPL",
+				"category": "Macaulay2"
 			},
 			{
 				"command": "macaulay2.startTerminal",
-				"title": "Start M2 Terminal"
+				"title": "Start M2 Terminal",
+				"category": "Macaulay2"
 			},
 			{
 				"command": "macaulay2.sendToWebview",
-				"title": "Send Line or Selection to Macaulay2 Webview"
+				"title": "Send Line or Selection to Macaulay2 Webview",
+				"category": "Macaulay2"
 			},
 			{
 				"command": "macaulay2.sendToTerminal",
-				"title": "Send Line or Selection to Macaulay2 Terminal"
+				"title": "Send Line or Selection to Macaulay2 Terminal",
+				"category": "Macaulay2"
 			},
 			{
 				"command": "macaulay2.runFile",
 				"title": "Run Macaulay2 File",
+				"category": "Macaulay2",
 				"icon": "$(play)"
 			},
 			{
 				"command": "macaulay2.interruptREPL",
-				"title": "Interrupt M2 Computation"
+				"title": "Interrupt M2 Computation",
+				"category": "Macaulay2"
 			},
 			{
 				"command": "macaulay2.selectExecutablePath",
-				"title": "Select M2 Executable"
+				"title": "Select M2 Executable",
+				"category": "Macaulay2"
+			},
+			{
+				"command": "macaulay2.restartLanguageServer",
+				"title": "Restart Language Server",
+				"category": "Macaulay2"
 			}
 		],
 		"grammars": [
@@ -58,6 +71,10 @@
 				"language": "macaulay2",
 				"scopeName": "source.macaulay2",
 				"path": "./syntaxes/macaulay2.tmLanguage.json"
+			},
+			{
+				"scopeName": "text.macaulay2.simpledoc",
+				"path": "./syntaxes/simpledoc.tmLanguage.json"
 			},
 			{
 				"scopeName": "markdown.macaulay2.codeblock",
@@ -88,6 +105,19 @@
 		"configuration": {
 			"title": "Macaulay2",
 			"properties": {
+				"macaulay2.enableLanguageServer": {
+					"type": "boolean",
+					"default": true,
+					"description": "Enable the Macaulay2 Language Server for enhanced language support (hover, signature help, etc.). Requires M2-language-server to be installed.",
+					"scope": "window"
+				},
+				"macaulay2.languageServerPath": {
+					"type": "string",
+					"default": "",
+					"description": "Absolute path to the M2-language-server executable for this VS Code window. Leave empty to detect it automatically. Use User or Remote settings for machine-local paths. On Windows, a Unix path is launched through the default WSL distribution.",
+					"scope": "window",
+					"ignoreSync": true
+				},
 				"macaulay2.executablePath": {
 					"type": "string",
 					"default": "",
@@ -219,7 +249,7 @@
 					{
 						"id": "configureM2",
 						"title": "Configure Extension",
-						"description": "You can change the start up behavior, visual theme, and other settings.\n\n[Open Macaulay2 Settings](command:workbench.action.openSettings?%5B%22%40ext%3Acoreysharris.macaulay2%22%5D)\n\nAll keybindings can be viewed and edited.\n\n[Open Macaulay2 Keyboard Shortcuts](command:workbench.action.openGlobalKeybindings?%5B%22%40ext%3Acoreysharris.macaulay2%22%5D)",
+						"description": "You can change the start up behavior, visual theme, and other settings.\n\n[Open Macaulay2 Settings](command:workbench.action.openSettings?%5B%22%40ext%3AMacaulay2.macaulay2%22%5D)\n\nAll keybindings can be viewed and edited.\n\n[Open Macaulay2 Keyboard Shortcuts](command:workbench.action.openGlobalKeybindings?%5B%22%40ext%3AMacaulay2.macaulay2%22%5D)",
 						"media": {
 							"markdown": "walkthroughs/configure-m2.md"
 						},
@@ -279,7 +309,7 @@
 		"watch": "node esbuild.js --watch",
 		"clean": "rimraf node_modules out dist package-lock.json",
 		"test": "rimraf out/test && npm run compile && npm run compile-tests && vscode-test",
-		"update": "M2 --script generate-grammar.m2",
+		"update": "M2 --script generate-grammar.m2 && node scripts/generate-syntax.js",
 		"format": "prettier --write src/*/*.ts"
 	},
 	"devDependencies": {
@@ -295,6 +325,9 @@
 		"prettier": "^3.5.3",
 		"rimraf": "^6.0.1",
 		"tslint": "^5.12.1",
-		"typescript": "^5.4.0"
+		"typescript": "^5.4.0",
+		"vscode-languageclient": "^9.0.1",
+		"vscode-oniguruma": "^2.0.1",
+		"vscode-textmate": "^9.3.2"
 	}
 }

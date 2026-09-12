@@ -9,3 +9,8 @@ vsc-extension-quickstart.md
 **/tslint.json
 **/*.map
 **/*.ts
+syntaxes/**/*.in
+syntaxes/m2-tokens.json
+scripts/**
+generate-grammar.m2
+.prettierrc*

@@ -16,7 +16,260 @@ export interface M2LaunchConfiguration {
   cwd?: string;
 }
 
+export interface CommandExecutableResolution {
+  executablePath: string;
+  source: string;
+  args?: string[];
+  env?: NodeJS.ProcessEnv;
+  wslExecutablePath?: string;
+  wslDistroName?: string;
+}
+
 export type M2LaunchArgsConfiguration = string | undefined;
+
+export interface CommandProbe {
+  resolution?: CommandExecutableResolution;
+  timedOut: boolean;
+}
+
+interface ShellProbe {
+  executablePath?: string;
+  timedOut: boolean;
+}
+
+export interface ShellCommandResult {
+  output?: string;
+  timedOut: boolean;
+}
+
+interface ShellCommandExecutionOptions {
+  encoding: "utf8";
+  stdio: ["ignore", "pipe", "ignore"];
+  timeout?: number;
+  killSignal: "SIGKILL";
+}
+
+export type ShellCommandExecutor = (
+  executablePath: string,
+  args: string[],
+  options: ShellCommandExecutionOptions,
+) => string;
+
+export type ShellCommandRunner = (
+  executablePath: string,
+  args: string[],
+  timeout?: number,
+) => ShellCommandResult;
+
+export interface CachedCommandResolver {
+  // Returns the probe rather than just the resolution: callers that stop
+  // asking after a negative answer need to know whether it was conclusive.
+  resolve(): CommandProbe;
+  forget(): void;
+}
+
+// Every shell probe below runs synchronously on the extension host thread, so
+// none of them may wait indefinitely.  A login shell that sources nvm, conda,
+// or pyenv is routinely a few hundred milliseconds, and a misconfigured one can
+// block outright.  Same budget the WSL probes use.
+const shellProbeTimeoutMilliseconds = 5000;
+
+/**
+ * Resolve a command once and remember the answer, "not found" included.
+ *
+ * Resolution is expensive: on Windows it shells out to Cygwin bash and wsl.exe,
+ * and elsewhere it may spawn a login shell.  Callers driven by editor events
+ * would otherwise pay that cost on every tab switch, and the "not installed"
+ * case is the one that pays it every single time -- there is no successful
+ * lookup to stop the retries.
+ *
+ * Timeouts are remembered too.  Retrying a synchronous probe from every editor
+ * event would replace one unlucky delay with a five-second stall on every tab
+ * switch.  `forget` is the explicit retry path, both for a timeout and for an
+ * executable installed after the extension activated.
+ */
+export function createCachedCommandResolver(
+  command: string,
+  probe: (command: string) => CommandProbe = probeCommandExecutable,
+): CachedCommandResolver {
+  // The box distinguishes "looked, found nothing" from "not looked yet".
+  let cached: { probe: CommandProbe } | undefined;
+
+  return {
+    resolve() {
+      if (cached) {
+        return cached.probe;
+      }
+
+      const result = probe(command);
+      cached = { probe: result };
+      return result;
+    },
+    forget() {
+      cached = undefined;
+    },
+  };
+}
+
+/**
+ * Resolve a command, letting a configured path win outright.
+ *
+ * Mirrors how resolveM2Executable treats macaulay2.executablePath: the path is
+ * taken as given rather than checked, with a Unix path on Windows launched
+ * through WSL.  A wrong path therefore surfaces as a start failure naming the
+ * path instead of silently falling back to auto-detection.
+ */
+export function probeConfiguredCommand(
+  configuredPath: string | undefined,
+  command: string,
+  probe: (command: string) => CommandProbe = probeCommandExecutable,
+  platform: NodeJS.Platform = process.platform,
+  findWsl: () => string | undefined = findWslExecutable,
+  findDistro: (wslPath: string) => string | undefined = resolveWslDistroName,
+): CommandProbe {
+  const configured = configuredPath?.trim();
+  if (configured) {
+    if (platform === "win32" && isUnixAbsolutePath(configured)) {
+      const wslPath = findWsl();
+      if (wslPath) {
+        return {
+          resolution: wslCommandResolution(
+            wslPath,
+            configured,
+            "setting via WSL",
+            findDistro(wslPath),
+          ),
+          timedOut: false,
+        };
+      }
+    }
+
+    return {
+      resolution: { executablePath: configured, source: "setting" },
+      timedOut: false,
+    };
+  }
+
+  return probe(command);
+}
+
+export function resolveCommandExecutable(
+  command: string,
+): CommandExecutableResolution | undefined {
+  return probeCommandExecutable(command).resolution;
+}
+
+/**
+ * Resolve a command, reporting whether a shell probe ran out of time.
+ *
+ * A timeout is not the same answer as "not installed" -- the command may well
+ * be there behind a shell that was merely slow -- so callers need to preserve
+ * that distinction even when they cache the result until an explicit retry.
+ */
+export function probeCommandExecutable(command: string): CommandProbe {
+  const fromPath = findCommandOnPath(command);
+  if (fromPath) {
+    return {
+      resolution: { executablePath: fromPath, source: "PATH" },
+      timedOut: false,
+    };
+  }
+
+  if (process.platform === "win32") {
+    return probeWindowsCommandExecutable(command);
+  }
+
+  const fromLoginShell = resolveCommandWithLoginShell(command);
+  if (fromLoginShell.executablePath) {
+    return {
+      resolution: {
+        executablePath: fromLoginShell.executablePath,
+        source: "login shell PATH",
+      },
+      timedOut: false,
+    };
+  }
+
+  if (command === "M2-language-server") {
+    const bundled = resolveBundledLanguageServer(resolveM2Executable());
+    if (bundled) return { resolution: bundled, timedOut: false };
+  }
+
+  return { timedOut: fromLoginShell.timedOut };
+}
+
+/** Homebrew can install the launcher as package data without linking it in bin. */
+export function resolveBundledLanguageServer(
+  m2: M2ExecutableResolution | undefined,
+): CommandExecutableResolution | undefined {
+  if (!m2 || m2.wslExecutablePath || !isExecutableFile(m2.executablePath)) {
+    return undefined;
+  }
+
+  let realExecutable: string;
+  try {
+    // Follow Homebrew's bin/M2 symlink into its versioned Cellar prefix.
+    realExecutable = fs.realpathSync(m2.executablePath);
+  } catch {
+    return undefined;
+  }
+
+  for (const executable of dedupe([realExecutable, m2.executablePath])) {
+    const bin = path.dirname(executable);
+    const launcher = path.join(
+      bin, "..", "share", "Macaulay2", "LanguageServer", "M2-language-server",
+    );
+    if (isExecutableFile(launcher)) {
+      return {
+        executablePath: realExecutable,
+        source: "M2 installation",
+        // Bootstrap the bundled package directly: its shell launcher doesn't
+        // accept extra arguments and loads init.m2, whose output corrupts LSP
+        // framing. -q keeps interactive initialization out of the server.
+        args: [
+          "-q", "--silent", "--stop",
+          "-e", "clearEcho stdio",
+          "-e", 'needsPackage "LanguageServer"',
+          "-e", "server = new LSPServer",
+          "-e", "setLogger(server, printerr)",
+          "-e", "start server",
+        ],
+        // Keep the matching installation available to package subprocesses.
+        env: {
+          ...process.env,
+          PATH: [path.dirname(realExecutable), process.env.PATH]
+            .filter(Boolean).join(path.delimiter),
+        },
+      };
+    }
+  }
+
+  return undefined;
+}
+
+export function probeWindowsCommandExecutable(
+  command: string,
+  probeCygwin: (command: string) => ShellProbe = resolveCommandWithCygwinShell,
+  probeWsl: (command: string) => CommandProbe = probeCommandWithWsl,
+): CommandProbe {
+  const fromCygwinShell = probeCygwin(command);
+  if (fromCygwinShell.executablePath) {
+    return {
+      resolution: {
+        executablePath: fromCygwinShell.executablePath,
+        source: "Cygwin shell",
+      },
+      timedOut: false,
+    };
+  }
+
+  const fromWsl = probeWsl(command);
+  if (fromWsl.resolution) {
+    return fromWsl;
+  }
+
+  return { timedOut: fromCygwinShell.timedOut || fromWsl.timedOut };
+}
 
 export function resolveM2Executable(
   configuredPath?: string,
@@ -265,20 +518,32 @@ function resolveManualWslExecutable(
 }
 
 function resolveWithLoginShell(): string | undefined {
+  return resolveCommandWithLoginShell("M2").executablePath;
+}
+
+function resolveCommandWithLoginShell(command: string): ShellProbe {
   const shell = getEnv("SHELL");
   if (!shell || !path.isAbsolute(shell) || !fs.existsSync(shell)) {
-    return undefined;
+    return { timedOut: false };
   }
 
-  const resolved = runShellCommand(shell, ["-l", "-c", "command -v M2"]);
-  if (resolved && isExecutableFile(resolved)) {
-    return resolved;
+  const result = runShellCommand(
+    shell,
+    ["-l", "-c", `command -v ${quoteShellWord(command)}`],
+    shellProbeTimeoutMilliseconds,
+  );
+  if (result.output && isExecutableFile(result.output)) {
+    return { executablePath: result.output, timedOut: false };
   }
 
-  return undefined;
+  return { timedOut: result.timedOut };
 }
 
 function resolveWithCygwinShell(): string | undefined {
+  return resolveCommandWithCygwinShell("M2").executablePath;
+}
+
+function resolveCommandWithCygwinShell(command: string): ShellProbe {
   const bashCandidates = [
     findCommandOnPath("bash"),
     ...getWindowsCandidateRoots().map((root) =>
@@ -286,53 +551,113 @@ function resolveWithCygwinShell(): string | undefined {
     ),
   ];
 
+  // The timeout bounds one spawn, and there can be a dozen candidates here, so
+  // budget the loop as a whole rather than letting the worst case add up.
+  const deadline = Date.now() + shellProbeTimeoutMilliseconds;
+
   for (const bashPath of dedupe(bashCandidates)) {
     if (!bashPath || !isExecutableFile(bashPath)) {
       continue;
     }
 
-    const resolved = runShellCommand(bashPath, [
-      "-lc",
-      'if command -v M2 >/dev/null 2>&1; then cygpath -wa "$(command -v M2)"; fi',
-    ]);
-    if (resolved && isExecutableFile(resolved)) {
-      return resolved;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      return { timedOut: true };
+    }
+
+    const quotedCommand = quoteShellWord(command);
+    const result = runShellCommand(
+      bashPath,
+      [
+        "-lc",
+        `if command -v ${quotedCommand} >/dev/null 2>&1; then cygpath -wa "$(command -v ${quotedCommand})"; fi`,
+      ],
+      remaining,
+    );
+    if (result.output && isExecutableFile(result.output)) {
+      return { executablePath: result.output, timedOut: false };
+    }
+    if (result.timedOut) {
+      return { timedOut: true };
     }
   }
 
-  return undefined;
+  return { timedOut: false };
 }
 
 function resolveWithWsl(): M2ExecutableResolution | undefined {
-  const wslPath = findWslExecutable();
-  if (!wslPath) {
-    return undefined;
-  }
-
-  const resolved = runShellCommand(
-    wslPath,
-    ["--exec", "sh", "-lc", "command -v M2"],
-    5000,
-  );
-  const wslExecutablePath = normalizeShellOutputPath(resolved);
-  if (!wslExecutablePath || !isUnixAbsolutePath(wslExecutablePath)) {
+  const resolved = probeCommandWithWsl("M2").resolution;
+  if (!resolved?.wslExecutablePath) {
     return undefined;
   }
 
   return {
+    executablePath: resolved.executablePath,
+    source: resolved.source,
+    wslExecutablePath: resolved.wslExecutablePath,
+    wslDistroName: resolved.wslDistroName,
+  };
+}
+
+function wslCommandResolution(
+  wslPath: string,
+  commandPath: string,
+  source: string,
+  distroName: string | undefined,
+): CommandExecutableResolution {
+  return {
     executablePath: wslPath,
-    source: "WSL",
-    wslExecutablePath,
-    wslDistroName: resolveWslDistroName(wslPath),
+    source,
+    // Pin the distribution used for discovery and URI conversion even if the
+    // user's default distribution changes before the client is started.
+    args: [
+      ...(distroName ? ["--distribution", distroName] : []),
+      "--exec",
+      commandPath,
+    ],
+    wslExecutablePath: commandPath,
+    wslDistroName: distroName,
+  };
+}
+
+export function probeCommandWithWsl(
+  command: string,
+  findWsl: () => string | undefined = findWslExecutable,
+  run: ShellCommandRunner = runShellCommand,
+  findDistro: (wslPath: string) => string | undefined = resolveWslDistroName,
+): CommandProbe {
+  const wslPath = findWsl();
+  if (!wslPath) {
+    return { timedOut: false };
+  }
+
+  const result = run(
+    wslPath,
+    ["--exec", "sh", "-lc", `command -v ${quoteShellWord(command)}`],
+    shellProbeTimeoutMilliseconds,
+  );
+  const wslExecutablePath = normalizeShellOutputPath(result.output);
+  if (!wslExecutablePath || !isUnixAbsolutePath(wslExecutablePath)) {
+    return { timedOut: result.timedOut };
+  }
+
+  return {
+    resolution: wslCommandResolution(
+      wslPath,
+      wslExecutablePath,
+      "WSL",
+      findDistro(wslPath),
+    ),
+    timedOut: false,
   };
 }
 
 function resolveWslDistroName(wslPath: string): string | undefined {
   const envDistroName = normalizeShellOutputPath(
-    runShellCommand(
+    runShellCommandOutput(
       wslPath,
       ["--exec", "sh", "-lc", 'printf "%s" "$WSL_DISTRO_NAME"'],
-      5000,
+      shellProbeTimeoutMilliseconds,
     ),
   );
   if (envDistroName) {
@@ -351,10 +676,10 @@ function resolveWslWindowsPath(
   filePath: string,
 ): string | undefined {
   return normalizeShellOutputPath(
-    runShellCommand(
+    runShellCommandOutput(
       wslHostExecutablePath,
       ["--exec", "wslpath", "-w", filePath],
-      5000,
+      shellProbeTimeoutMilliseconds,
     ),
   );
 }
@@ -366,21 +691,51 @@ function findWslExecutable(): string | undefined {
   ]);
 }
 
-function runShellCommand(
+const defaultShellCommandExecutor: ShellCommandExecutor = (
+  executablePath,
+  args,
+  options,
+) => execFileSync(executablePath, args, options);
+
+export function runShellCommand(
+  shellPath: string,
+  args: string[],
+  timeout?: number,
+  execute: ShellCommandExecutor = defaultShellCommandExecutor,
+): ShellCommandResult {
+  try {
+    const output = execute(shellPath, args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout,
+      // execFileSync waits after a timeout until the child actually exits.
+      // SIGTERM can be trapped or ignored, so it does not impose a hard bound
+      // on this synchronous extension-host work.
+      killSignal: "SIGKILL",
+    }).trim();
+    return { output: output || undefined, timedOut: false };
+  } catch (error) {
+    return { timedOut: isTimeoutError(error) };
+  }
+}
+
+function runShellCommandOutput(
   shellPath: string,
   args: string[],
   timeout?: number,
 ): string | undefined {
-  try {
-    const output = execFileSync(shellPath, args, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout,
-    }).trim();
-    return output || undefined;
-  } catch {
-    return undefined;
-  }
+  return runShellCommand(shellPath, args, timeout).output;
+}
+
+// A probe that ran out of time is not the same answer as a probe that came
+// back empty, and callers that cache their result need to tell them apart.
+// execFileSync kills the child and rethrows on expiry; Node reports that as
+// ETIMEDOUT, or as the kill signal.
+function isTimeoutError(error: unknown): boolean {
+  const failure = error as
+    | (NodeJS.ErrnoException & { signal?: NodeJS.Signals | null })
+    | undefined;
+  return failure?.code === "ETIMEDOUT" || failure?.signal === "SIGKILL";
 }
 
 function normalizeShellOutputPath(
@@ -390,6 +745,10 @@ function normalizeShellOutputPath(
     ?.split(/\r?\n/)
     .map((line) => line.trim())
     .find(Boolean);
+}
+
+function quoteShellWord(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 function findCommandOnPath(command: string): string | undefined {

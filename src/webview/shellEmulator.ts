@@ -2,6 +2,11 @@ declare const MINIMAL;
 // import { autoRender } from "./autoRender";
 import { webAppTags, webAppClasses, webAppRegex } from "./tags.js";
 import {
+  shouldAppendProtocolNewlineToPreviousOutput,
+  shouldPromoteWebappOutputToBlock,
+  splitTrailingProtocolNewline,
+} from "./outputLayout.js";
+import {
   scrollDownLeft,
   scrollDown,
   scrollLeft,
@@ -287,6 +292,7 @@ const Shell = function (
   const outputScrollClass = "M2OutputScroll";
   const outputScrollScrollableClass = "M2OutputScrollScrollable";
   const standardOutputClass = "M2StandardOutput";
+  const outputSeparatorClass = "M2OutputSeparator";
 
   const updateOutputScrollState = function (output: Element) {
     if (!(output instanceof HTMLElement)) return;
@@ -339,9 +345,49 @@ const Shell = function (
     return output;
   };
 
+  const moveTrailingProtocolNewlineBeforePrompt = function (
+    cell: HTMLElement,
+    beforeNode?: Node | null,
+  ) {
+    // Newlines between successive WebApp HTML fragments belong inside the
+    // scroll container. Once the next output prompt arrives, move only the
+    // trailing run into the cell flow so the prompt starts a new result row.
+    const previous =
+      beforeNode instanceof Element
+        ? beforeNode.previousElementSibling
+        : cell.lastElementChild;
+    if (
+      !previous ||
+      !previous.classList.contains(outputScrollClass) ||
+      previous.classList.contains(standardOutputClass) ||
+      !(previous.lastChild instanceof Text)
+    )
+      return;
+
+    const split = splitTrailingProtocolNewline(previous.lastChild.data);
+    if (!split) return;
+
+    if (split.content.length > 0) previous.lastChild.data = split.content;
+    else previous.lastChild.remove();
+
+    const separator = document.createElement("span");
+    separator.className = outputSeparatorClass;
+    separator.textContent = split.newline;
+    if (beforeNode) cell.insertBefore(separator, beforeNode);
+    else cell.appendChild(separator);
+  };
+
   const createHtml = function (className) {
     const cell = className.indexOf("M2Cell") >= 0; // a bit special
     const anc = htmlSec;
+    const beforeNode =
+      inputSpan && inputSpan.parentElement == anc ? inputSpan : null;
+    if (
+      outputMode === "webapp" &&
+      className.indexOf("M2Prompt") >= 0 &&
+      anc.classList.contains("M2Cell")
+    )
+      moveTrailingProtocolNewlineBeforePrompt(anc, beforeNode);
     htmlSec = document.createElement(cell ? "div" : "span");
     htmlSec.className = className;
     if (cell) {
@@ -361,8 +407,7 @@ const Shell = function (
     }
     if (className.indexOf("M2Text") < 0) htmlSec.dataset.code = "";
     // even M2Html needs to keep track of innerHTML because html tags may get broken
-    if (inputSpan && inputSpan.parentElement == anc)
-      anc.insertBefore(htmlSec, inputSpan);
+    if (beforeNode) anc.insertBefore(htmlSec, beforeNode);
     else anc.appendChild(htmlSec);
   };
 
@@ -1797,12 +1842,13 @@ const Shell = function (
             ? beforeNode.previousElementSibling
             : htmlSec.lastElementChild;
         if (
-          txt === "\n" &&
           previous &&
-          previous.classList.contains(outputScrollClass) &&
-          previous.classList.contains(standardOutputClass) ==
-            (outputMode === "standard") &&
-          outputContainerOwnsNewline(previous)
+          shouldAppendProtocolNewlineToPreviousOutput(
+            txt,
+            previous.classList.contains(outputScrollClass),
+            previous.classList.contains(standardOutputClass),
+            outputMode,
+          )
         )
           return previous as HTMLElement;
         return htmlSec;
@@ -1813,22 +1859,13 @@ const Shell = function (
         outputMode === "standard",
       );
     };
-    const outputContainerOwnsNewline = function (previous: Element) {
-      return (
-        outputMode === "standard" ||
-        !(
-          previous.lastElementChild &&
-          previous.lastElementChild.classList.contains("M2Html")
-        )
-      );
-    };
     const target = displayTarget(msg);
     // Multiline plain output can precede rich output in the same WebApp cell.
     // Keep it from pushing later SVG/HTML results horizontally off-screen.
     if (
       target != htmlSec &&
       outputMode !== "standard" &&
-      msg.indexOf("\n") >= 0
+      shouldPromoteWebappOutputToBlock(msg)
     ) {
       target.style.display = "block";
     }

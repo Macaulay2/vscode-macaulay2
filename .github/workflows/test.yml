@@ -9,7 +9,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Install Macaulay2
+        # Several tests skip themselves when M2 is missing, and the generated
+        # grammars can only be checked against a real interpreter.
+        run: |
+          sudo add-apt-repository -y ppa:macaulay2/macaulay2
+          sudo apt-get install -y macaulay2
+          M2 --version
       - name: Install dependencies
         run: npm clean-install
       - name: Test
         run: xvfb-run -a npm run test
+      - name: Check generated files are up to date
+        # Regenerating from the installed Macaulay2 must be a no-op.  A diff
+        # here means either the templates were changed without running
+        # "npm run update", or Macaulay2 itself gained a symbol, operator, or
+        # SimpleDoc keyword that the committed grammars do not know about.
+        run: |
+          npm run update
+          git diff --exit-code

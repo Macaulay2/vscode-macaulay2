@@ -32,6 +32,7 @@ const keepWebviewOpenOnProcessClose = new WeakSet<ChildProcess>();
 const closeWebviewOnProcessClose = new WeakSet<ChildProcess>();
 let shouldRestoreEditorFocusAfterWebviewOutput = false;
 let editorToRestoreAfterWebviewOutput: vscode.TextEditor | undefined;
+let g_flashDecoration: vscode.TextEditorDecorationType | undefined;
 
 type WebviewCompletionItem = {
   label: string;
@@ -781,25 +782,116 @@ async function executeCodeInTerminal(text: string) {
   terminal.sendText(text, false);
 }
 
-function getSelectedM2Code(): string | undefined {
-  var editor = vscode.window.activeTextEditor;
-  if (!editor) {
-    return undefined;
+function flashRange(editor: vscode.TextEditor, range: vscode.Range): void {
+  const lineHighlight = vscode.workspace
+    .getConfiguration("editor")
+    .get<string>("renderLineHighlight", "line");
+  if (lineHighlight === "none" || lineHighlight === "gutter") {
+    return;
+  }
+  if (!g_flashDecoration) {
+    g_flashDecoration = vscode.window.createTextEditorDecorationType({
+      backgroundColor: new vscode.ThemeColor(
+        "editor.selectionHighlightBackground",
+      ),
+    });
+  }
+  editor.setDecorations(g_flashDecoration, [{ range }]);
+  setTimeout(() => {
+    if (g_flashDecoration) editor.setDecorations(g_flashDecoration, []);
+  }, 300);
+}
+
+export function getParagraphLineRange(
+  currentLine: number,
+  lineCount: number,
+  getLineText: (line: number) => string,
+): { startLine: number; endLine: number } | undefined {
+  const lastLine = lineCount - 1;
+
+  if (getLineText(currentLine).trim() !== "") {
+    let startLine = currentLine;
+    while (startLine > 0 && getLineText(startLine - 1).trim() !== "") {
+      startLine--;
+    }
+    let endLine = currentLine;
+    while (endLine < lastLine && getLineText(endLine + 1).trim() !== "") {
+      endLine++;
+    }
+    return { startLine, endLine };
   }
 
-  var selection = editor.selection;
-  return selection.isEmpty
-    ? editor.document.lineAt(selection.start.line).text
-    : editor.document.getText(selection);
+  // On a blank line: find the next paragraph below.
+  let below = currentLine + 1;
+  while (below <= lastLine && getLineText(below).trim() === "") {
+    below++;
+  }
+  if (below <= lastLine) {
+    let endLine = below;
+    while (endLine < lastLine && getLineText(endLine + 1).trim() !== "") {
+      endLine++;
+    }
+    return { startLine: below, endLine };
+  }
+
+  // All whitespace below: fall back to the previous paragraph above.
+  let above = currentLine - 1;
+  while (above >= 0 && getLineText(above).trim() === "") {
+    above--;
+  }
+  if (above >= 0) {
+    let startLine = above;
+    while (startLine > 0 && getLineText(startLine - 1).trim() !== "") {
+      startLine--;
+    }
+    return { startLine, endLine: above };
+  }
+
+  return undefined;
 }
 
 function executeSelectionInTerminal() {
-  const text = getSelectedM2Code();
-  if (text === undefined) {
-    return;
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+  const selection = editor.selection;
+  const range = selection.isEmpty
+    ? editor.document.lineAt(selection.start.line).range
+    : new vscode.Range(selection.start, selection.end);
+  flashRange(editor, range);
+  executeCodeInTerminal(editor.document.getText(range));
+  if (selection.isEmpty) {
+    vscode.commands.executeCommand("cursorMove", {
+      to: "down",
+      by: "line",
+      value: 1,
+    });
   }
+}
 
-  executeCodeInTerminal(text);
+async function executeSelectionInWebview() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+  const selection = editor.selection;
+  const range = selection.isEmpty
+    ? editor.document.lineAt(selection.start.line).range
+    : new vscode.Range(selection.start, selection.end);
+  flashRange(editor, range);
+  await executeCode(editor.document.getText(range), true, true);
+  if (selection.isEmpty) {
+    vscode.commands.executeCommand("cursorMove", {
+      to: "down",
+      by: "line",
+      value: 1,
+    });
+  }
+}
+
+async function executeLineInWebview() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+  const line = editor.document.lineAt(editor.selection.active.line);
+  flashRange(editor, line.range);
+  await executeCode(line.text, true, true);
   vscode.commands.executeCommand("cursorMove", {
     to: "down",
     by: "line",
@@ -807,18 +899,87 @@ function executeSelectionInTerminal() {
   });
 }
 
-async function executeSelectionInWebview() {
-  const text = getSelectedM2Code();
-  if (text === undefined) {
+async function executeRegionInWebview() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+  const selection = editor.selection;
+  if (selection.isEmpty) {
+    vscode.window.showInformationMessage("No region selected.");
     return;
   }
+  flashRange(editor, selection);
+  await executeCode(editor.document.getText(selection), true, true);
+}
 
-  await executeCode(text, true, true);
-  vscode.commands.executeCommand("cursorMove", {
-    to: "down",
-    by: "line",
-    value: 1,
-  });
+async function executeBufferInWebview() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+  const document = editor.document;
+  const lastLine = document.lineCount - 1;
+  const range = new vscode.Range(
+    new vscode.Position(0, 0),
+    new vscode.Position(lastLine, document.lineAt(lastLine).text.length),
+  );
+  flashRange(editor, range);
+  await executeCode(document.getText(), true, true);
+}
+
+async function executeAboveInWebview() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+  const position = editor.selection.active;
+  if (position.isEqual(new vscode.Position(0, 0))) return;
+  const range = new vscode.Range(new vscode.Position(0, 0), position);
+  flashRange(editor, range);
+  await executeCode(editor.document.getText(range), true, true);
+}
+
+async function executeBelowInWebview() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+  const position = editor.selection.active;
+  const lastLine = editor.document.lineCount - 1;
+  const lastChar = editor.document.lineAt(lastLine).text.length;
+  const end = new vscode.Position(lastLine, lastChar);
+  if (position.isEqual(end)) return;
+  const range = new vscode.Range(position, end);
+  flashRange(editor, range);
+  await executeCode(editor.document.getText(range), true, true);
+}
+
+async function executeParagraphInWebview() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+  const document = editor.document;
+  const currentLine = editor.selection.active.line;
+
+  const lineRange = getParagraphLineRange(
+    currentLine,
+    document.lineCount,
+    (line) => document.lineAt(line).text,
+  );
+  if (!lineRange) return;
+
+  const { startLine, endLine } = lineRange;
+  const range = new vscode.Range(
+    new vscode.Position(startLine, 0),
+    new vscode.Position(endLine, document.lineAt(endLine).text.length),
+  );
+  flashRange(editor, range);
+  await executeCode(document.getText(range), true, true);
+
+  if (endLine + 1 < document.lineCount) {
+    editor.selection = new vscode.Selection(
+      new vscode.Position(endLine + 1, 0),
+      new vscode.Position(endLine + 1, 0),
+    );
+  } else {
+    const endChar = document.lineAt(endLine).text.length;
+    editor.selection = new vscode.Selection(
+      new vscode.Position(endLine, endChar),
+      new vscode.Position(endLine, endChar),
+    );
+  }
 }
 
 async function executeFileInWebview(resource?: vscode.Uri) {
@@ -2308,6 +2469,42 @@ export function activate(
   context.subscriptions.push(
     vscode.commands.registerCommand("macaulay2.interruptREPL", interruptM2),
   );
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "macaulay2.sendLineToREPL",
+      executeLineInWebview,
+    ),
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "macaulay2.sendRegionToREPL",
+      executeRegionInWebview,
+    ),
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "macaulay2.sendBufferToREPL",
+      executeBufferInWebview,
+    ),
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "macaulay2.sendAboveToREPL",
+      executeAboveInWebview,
+    ),
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "macaulay2.sendBelowToREPL",
+      executeBelowInWebview,
+    ),
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "macaulay2.sendParagraphToREPL",
+      executeParagraphInWebview,
+    ),
+  );
   registerM2ExecutableSwitcher(context, handleM2ExecutableChanged);
   context.subscriptions.push(
     vscode.window.registerTerminalLinkProvider(
@@ -2345,5 +2542,9 @@ export function deactivate() {
     g_terminal = undefined;
     terminalWorkingDir = undefined;
     terminalSourceSearchRoots = [];
+  }
+  if (g_flashDecoration) {
+    g_flashDecoration.dispose();
+    g_flashDecoration = undefined;
   }
 }

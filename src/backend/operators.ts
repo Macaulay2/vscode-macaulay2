@@ -1,4 +1,4 @@
-// Auto-generated for Macaulay2-1.26.06. Do not modify this file manually.
+// Auto-generated for Macaulay2-1.26.11. Do not modify this file manually.
 // Regenerate with "npm run update".
 
 /**

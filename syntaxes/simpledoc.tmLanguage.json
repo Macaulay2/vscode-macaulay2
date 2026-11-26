@@ -1,6 +1,6 @@
 {
   "information_for_contributors": [
-    "Auto-generated for Macaulay2-1.26.06. Do not modify this file manually.",
+    "Auto-generated for Macaulay2-1.26.11. Do not modify this file manually.",
     "Edit syntaxes/simpledoc.tmLanguage.json.in and run \"npm run update\".",
     "Grammar reference: https://github.com/Macaulay2/M2/wiki/SimpleDoc-language-grammar",
     "SimpleDoc follows the off-side rule: a section is a line holding nothing but a keyword, and its body is the more deeply indented lines that follow. That is expressed here with begin/while rules whose while pattern backreferences the indent captured by begin."
